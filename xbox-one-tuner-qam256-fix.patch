@@ -1,49 +1,27 @@
-diff --git a/src_orig/mn88472_priv.h b/src_patched/mn88472_priv.h
-index 3375627..0cf84c0 100644
---- a/src_orig/mn88472_priv.h
-+++ b/src_patched/mn88472_priv.h
-@@ -13,6 +13,9 @@
- #include "mn88472.h"
- #include <linux/firmware.h>
- #include <linux/regmap.h>
-+#include <linux/jiffies.h>
-+#include <linux/moduleparam.h>
-+#include <linux/version.h>
- 
- #define MN88472_FIRMWARE "dvb-demod-mn88472-02.fw"
- 
-@@ -25,6 +28,9 @@ struct mn88472_dev {
- 	unsigned int active:1;
- 	unsigned int ts_mode:1;
- 	unsigned int ts_clk:1;
-+	bool has_locked_stats;
-+	enum fe_status cached_status;
-+	unsigned long last_stat_jiffies;
- };
- 
- #endif
-diff --git a/src_orig/mn88472.c b/src_patched/mn88472.c
-index 73922fc..b4691ec 100644
---- a/src_orig/mn88472.c
-+++ b/src_patched/mn88472.c
-@@ -3,10 +3,31 @@
-  * Panasonic MN88472 DVB-T/T2/C demodulator driver
-  *
-  * Copyright (C) 2013 Antti Palosaari <crope@iki.fi>
-+ *
-+ * High-Bitrate QAM-256 / DiB0700 I2C FIFO-Stall Avoidance Patch:
-+ * Prevents synchronous USB EP0/I2C status polling from stalling the DiB0700
-+ * 8051 microcontroller's TS slave FIFO on ~50.87 Mbps DVB-C transponders,
-+ * configures VARIABLE_TS_CLOCK (0xe3), and loads complete DVB-C bandwidth
-+ * and TS output timing registers.
-  */
+From 621d1c1baddc97c1458dcf23c74720abbd6db423 Mon Sep 17 00:00:00 2001
+From: zildan <zildan@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 01:19:52 +0200
+Subject: [PATCH] media: mn88472 / dib0700: fix Xbox One Tuner packet drops on
+ high-bitrate DVB-C QAM-256
+
+---
+ drivers/media/dvb-frontends/mn88472.c       | 72 +++++++++++++++++----
+ drivers/media/dvb-frontends/mn88472_priv.h  |  5 ++
+ drivers/media/usb/dvb-usb/dib0700_devices.c |  2 +-
+ 3 files changed, 67 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/media/dvb-frontends/mn88472.c b/drivers/media/dvb-frontends/mn88472.c
+index 73d1e52de..97df16ec7 100644
+--- a/drivers/media/dvb-frontends/mn88472.c
++++ b/drivers/media/dvb-frontends/mn88472.c
+@@ -7,6 +7,21 @@
  
  #include "mn88472_priv.h"
  
 +static int stat_poll_interval;
 +module_param(stat_poll_interval, int, 0644);
 +MODULE_PARM_DESC(stat_poll_interval,
-+	"Minimum interval in seconds between I2C status/CNR polls once locked on DVB-C (0 = cache while locked to prevent DiB0700 USB I2C TS FIFO stalls; default: 0)");
++	"Minimum interval in seconds between I2C status/CNR polls once locked (0 = cache while locked to prevent USB I2C TS FIFO stalls; default: 0)");
 +
 +static int force_variable_ts_clock = 1;
 +module_param(force_variable_ts_clock, int, 0644);
@@ -53,27 +31,15 @@ index 73922fc..b4691ec 100644
 +static int dvbc_d6_val = 0x46;
 +module_param(dvbc_d6_val, int, 0644);
 +MODULE_PARM_DESC(dvbc_d6_val,
-+	"Register 0xd6 TS output config for DVB-C (0x46 = high-bitrate/T2 timing, 0x48 = stock; default: 0x46)");
++	"Register 0xd6 TS output config for DVB-C (0x46 = high-bitrate timing, 0x48 = stock; default: 0x46)");
 +
  static int mn88472_get_tune_settings(struct dvb_frontend *fe,
  				     struct dvb_frontend_tune_settings *s)
  {
-@@ -28,6 +49,27 @@ static int mn88472_read_status(struct dvb_frontend *fe, enum fe_status *status)
+@@ -28,6 +43,15 @@ static int mn88472_read_status(struct dvb_frontend *fe, enum fe_status *status)
  		goto err;
  	}
  
-+	/*
-+	 * On DiB0700 USB bridges (such as the Xbox One Digital TV Tuner),
-+	 * every I2C read is a synchronous USB EP0 control request handled by
-+	 * the single-threaded 8051 microcontroller. Performing 5 I2C transfers
-+	 * (10 USB EP0 round-trips) every second during a 50.87 Mbps QAM-256
-+	 * DVB-C stream stalls the DiB0700 TS FIFO just long enough to drop
-+	 * 1 MPEG-TS packet per poll.
-+	 *
-+	 * Once locked with valid CNR & strength statistics acquired, return
-+	 * the cached lock status without disturbing the I2C bus (unless
-+	 * stat_poll_interval > 0 and the interval has elapsed).
-+	 */
 +	if (dev->has_locked_stats) {
 +		if (stat_poll_interval <= 0 ||
 +		    time_before(jiffies, dev->last_stat_jiffies +
@@ -86,7 +52,7 @@ index 73922fc..b4691ec 100644
  	switch (c->delivery_system) {
  	case SYS_DVBT:
  		ret = regmap_read(dev->regmap[0], 0x7f, &utmp);
-@@ -190,6 +232,14 @@ static int mn88472_read_status(struct dvb_frontend *fe, enum fe_status *status)
+@@ -190,6 +214,14 @@ static int mn88472_read_status(struct dvb_frontend *fe, enum fe_status *status)
  		c->block_count.stat[0].scale = FE_SCALE_NOT_AVAILABLE;
  	}
  
@@ -101,18 +67,17 @@ index 73922fc..b4691ec 100644
  	return 0;
  err:
  	dev_dbg(&client->dev, "failed=%d\n", ret);
-@@ -218,6 +268,10 @@ static int mn88472_set_frontend(struct dvb_frontend *fe)
+@@ -218,6 +250,9 @@ static int mn88472_set_frontend(struct dvb_frontend *fe)
  		goto err;
  	}
  
-+	/* Reset cached lock state on every tune request */
 +	dev->has_locked_stats = false;
 +	dev->cached_status = 0;
 +
  	switch (c->delivery_system) {
  	case SYS_DVBT:
  		delivery_system_val = 0x02;
-@@ -238,7 +292,7 @@ static int mn88472_set_frontend(struct dvb_frontend *fe)
+@@ -238,7 +273,7 @@ static int mn88472_set_frontend(struct dvb_frontend *fe)
  		reg_bank0_b4_val = 0x00;
  		reg_bank0_cd_val = 0x17;
  		reg_bank0_d4_val = 0x09;
@@ -121,7 +86,7 @@ index 73922fc..b4691ec 100644
  		break;
  	default:
  		ret = -EINVAL;
-@@ -271,7 +325,7 @@ static int mn88472_set_frontend(struct dvb_frontend *fe)
+@@ -271,7 +306,7 @@ static int mn88472_set_frontend(struct dvb_frontend *fe)
  		}
  		break;
  	case SYS_DVBC_ANNEX_A:
@@ -130,7 +95,7 @@ index 73922fc..b4691ec 100644
  		bandwidth_val = 0x00;
  		break;
  	default:
-@@ -375,11 +429,27 @@ static int mn88472_set_frontend(struct dvb_frontend *fe)
+@@ -375,11 +410,26 @@ static int mn88472_set_frontend(struct dvb_frontend *fe)
  			goto err;
  		break;
  	case SYS_DVBC_ANNEX_A:
@@ -148,7 +113,6 @@ index 73922fc..b4691ec 100644
  		break;
  	}
  
-+	/* Ensure TS clock mode is applied */
 +	utmp = (force_variable_ts_clock || dev->ts_clk == VARIABLE_TS_CLOCK) ?
 +	       0xe3 : 0xe1;
 +	ret = regmap_write(dev->regmap[0], 0xd9, utmp);
@@ -158,7 +122,7 @@ index 73922fc..b4691ec 100644
  	/* Reset FSM */
  	ret = regmap_write(dev->regmap[2], 0xf8, 0x9f);
  	if (ret)
-@@ -402,6 +472,9 @@ static int mn88472_init(struct dvb_frontend *fe)
+@@ -402,6 +452,9 @@ static int mn88472_init(struct dvb_frontend *fe)
  
  	dev_dbg(&client->dev, "\n");
  
@@ -168,7 +132,7 @@ index 73922fc..b4691ec 100644
  	/* Power up */
  	ret = regmap_write(dev->regmap[2], 0x05, 0x00);
  	if (ret)
-@@ -476,17 +549,11 @@ warm:
+@@ -476,17 +529,11 @@ static int mn88472_init(struct dvb_frontend *fe)
  	if (ret)
  		goto err;
  
@@ -189,7 +153,7 @@ index 73922fc..b4691ec 100644
  	ret = regmap_write(dev->regmap[0], 0xd9, utmp);
  	if (ret)
  		goto err;
-@@ -509,6 +576,9 @@ static int mn88472_sleep(struct dvb_frontend *fe)
+@@ -509,6 +556,9 @@ static int mn88472_sleep(struct dvb_frontend *fe)
  
  	dev_dbg(&client->dev, "\n");
  
@@ -199,67 +163,42 @@ index 73922fc..b4691ec 100644
  	/* Power down */
  	ret = regmap_write(dev->regmap[2], 0x0c, 0x30);
  	if (ret)
-@@ -572,8 +642,12 @@ static struct dvb_frontend *mn88472_get_dvb_frontend(struct i2c_client *client)
- 	return &dev->fe;
- }
+diff --git a/drivers/media/dvb-frontends/mn88472_priv.h b/drivers/media/dvb-frontends/mn88472_priv.h
+index 337562723..6c3769110 100644
+--- a/drivers/media/dvb-frontends/mn88472_priv.h
++++ b/drivers/media/dvb-frontends/mn88472_priv.h
+@@ -13,6 +13,8 @@
+ #include "mn88472.h"
+ #include <linux/firmware.h>
+ #include <linux/regmap.h>
++#include <linux/jiffies.h>
++#include <linux/moduleparam.h>
  
-+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
-+static int mn88472_probe(struct i2c_client *client)
-+#else
- static int mn88472_probe(struct i2c_client *client,
- 			 const struct i2c_device_id *id)
-+#endif
- {
- 	struct mn88472_config *pdata = client->dev.platform_data;
- 	struct mn88472_dev *dev;
-@@ -671,7 +745,8 @@ static int mn88472_probe(struct i2c_client *client,
- 	/* Setup callbacks */
- 	pdata->get_dvb_frontend = mn88472_get_dvb_frontend;
+ #define MN88472_FIRMWARE "dvb-demod-mn88472-02.fw"
  
--	dev_info(&client->dev, "Panasonic MN88472 successfully identified\n");
-+	dev_info(&client->dev,
-+		 "Panasonic MN88472 identified (QAM-256 high-bitrate patch active)\n");
+@@ -25,6 +27,9 @@ struct mn88472_dev {
+ 	unsigned int active:1;
+ 	unsigned int ts_mode:1;
+ 	unsigned int ts_clk:1;
++	bool has_locked_stats;
++	enum fe_status cached_status;
++	unsigned long last_stat_jiffies;
+ };
  
- 	return 0;
- err_regmap_2_regmap_exit:
-@@ -691,6 +766,24 @@ err:
- 	return ret;
- }
- 
-+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
-+static void mn88472_remove(struct i2c_client *client)
-+{
-+	struct mn88472_dev *dev = i2c_get_clientdata(client);
-+
-+	dev_dbg(&client->dev, "\n");
-+
-+	regmap_exit(dev->regmap[2]);
-+	i2c_unregister_device(dev->client[2]);
-+
-+	regmap_exit(dev->regmap[1]);
-+	i2c_unregister_device(dev->client[1]);
-+
-+	regmap_exit(dev->regmap[0]);
-+
-+	kfree(dev);
-+}
-+#else
- static int mn88472_remove(struct i2c_client *client)
- {
- 	struct mn88472_dev *dev = i2c_get_clientdata(client);
-@@ -709,6 +802,7 @@ static int mn88472_remove(struct i2c_client *client)
- 
- 	return 0;
- }
-+#endif
- 
- static const struct i2c_device_id mn88472_id_table[] = {
- 	{"mn88472", 0},
-@@ -729,6 +823,6 @@ static struct i2c_driver mn88472_driver = {
- module_i2c_driver(mn88472_driver);
- 
- MODULE_AUTHOR("Antti Palosaari <crope@iki.fi>");
--MODULE_DESCRIPTION("Panasonic MN88472 DVB-T/T2/C demodulator driver");
-+MODULE_DESCRIPTION("Panasonic MN88472 DVB-T/T2/C demodulator driver (QAM-256 high-bitrate fixed)");
- MODULE_LICENSE("GPL");
- MODULE_FIRMWARE(MN88472_FIRMWARE);
+ #endif
+diff --git a/drivers/media/usb/dvb-usb/dib0700_devices.c b/drivers/media/usb/dvb-usb/dib0700_devices.c
+index 3af594134..675a0d37f 100644
+--- a/drivers/media/usb/dvb-usb/dib0700_devices.c
++++ b/drivers/media/usb/dvb-usb/dib0700_devices.c
+@@ -3754,7 +3754,7 @@ static int xbox_one_attach(struct dvb_usb_adapter *adap)
+ 	mn88472_config.i2c_wr_max = 22;
+ 	mn88472_config.xtal = 20500000;
+ 	mn88472_config.ts_mode = PARALLEL_TS_MODE;
+-	mn88472_config.ts_clock = FIXED_TS_CLOCK;
++	mn88472_config.ts_clock = VARIABLE_TS_CLOCK;
+ 	memset(&info, 0, sizeof(struct i2c_board_info));
+ 	strscpy(info.type, "mn88472", I2C_NAME_SIZE);
+ 	info.addr = 0x18;
+-- 
+2.54.0.windows.1
+
