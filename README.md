@@ -49,6 +49,8 @@ Through live instrumentation across 18 QAM-256 cable transponders (`306 MHz` –
 | **506 MHz** | QAM-256 | `50.87 Mbps` | **`48.50 – 48.86 Mbps` (96%)** | `33.7 dB` | `1 – 2 errors / 10s` | **`0 errors` (0 TEI, 0 BlkErr)** |
 | **538 MHz** | QAM-256 | `50.87 Mbps` | **`47.67 – 47.93 Mbps` (94%)** | `33.5 dB` | `1 – 2 errors / 10s` | **`0 errors` (0 TEI, 0 BlkErr)** |
 
+![Tvheadend Live Stream - 0 Continuity Counter Errors at 12.5 Mbps](tvheadend_0_errors.png)
+
 ---
 
 ## 5. Quick Installation (Ubuntu / Debian / Proxmox / Linux Mint / Raspberry Pi OS)
