@@ -67,6 +67,12 @@ sudo ./install.sh
 ### For Enigma2 (OpenATV / OpenPLi) / LibreELEC / CoreELEC Image Builders:
 Apply [`xbox-one-tuner-qam256-fix.patch`](xbox-one-tuner-qam256-fix.patch) directly to `drivers/media/dvb-frontends/mn88472.c` and `mn88472_priv.h`, and include the module options from [`xbox-tuner-qam256.conf`](src_patched/xbox-tuner-qam256.conf) (`options dvb_usb_dib0700 nb_packet_buffer_size=512 disable_rc_polling=1`).
 
+### Upstream Pull Requests Submitted:
+- **CrazyCat (`crazycat69/linux_media`):** [PR #1](https://github.com/crazycat69/linux_media/pull/1)
+- **CoreELEC (`CoreELEC/CoreELEC`):** [PR #430](https://github.com/CoreELEC/CoreELEC/pull/430)
+- **LibreELEC (`LibreELEC/LibreELEC.tv`):** [PR #11970](https://github.com/LibreELEC/LibreELEC.tv/pull/11970)
+- **LibreELEC-AML S905/S912 (`dtechsrv/LibreELEC-AML`):** [PR #52](https://github.com/dtechsrv/LibreELEC-AML/pull/52)
+
 ---
 ---
 
