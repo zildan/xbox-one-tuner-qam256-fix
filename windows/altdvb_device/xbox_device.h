@@ -46,6 +46,7 @@ int  dib0700_ctrl_rd(xbox_device_t *dev, uint8_t *tx, uint8_t txlen, uint8_t *rx
 int  dib0700_i2c_write(xbox_device_t *dev, uint8_t addr, const uint8_t *buf, int len);
 int  dib0700_i2c_read(xbox_device_t *dev, uint8_t addr, uint8_t reg, uint8_t *buf, int len);
 bool dib0700_set_gpio(xbox_device_t *dev, uint8_t gpio, uint8_t dir, uint8_t val);
+int  dib0700_set_streaming(xbox_device_t *dev, int onoff);
 
 /* Demodulator & Tuner functions */
 bool tda18250_init(xbox_device_t *dev);

@@ -132,11 +132,12 @@ static unsigned __stdcall StreamThreadProc(void *arg) {
 static void StartStreaming(xbox_device_t *dev) {
     if (!dev->is_streaming && dev->is_initialized) {
         dev->is_streaming = true;
+        dib0700_set_streaming(dev, 1);
         dev->hStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
         dev->hStreamThread = (HANDLE)_beginthreadex(NULL, 0, StreamThreadProc, dev, 0, NULL);
         FILE *fs = fopen("D:\\temporare\\altdvb_stream.log", "a");
         if (fs) {
-            fprintf(fs, "StartStreaming: thread launched! is_streaming=%d cb=%p\n", dev->is_streaming, g_stream_cb);
+            fprintf(fs, "StartStreaming: dib0700_set_streaming(1) OK! thread launched! cb=%p\n", g_stream_cb);
             fclose(fs);
         }
     }
@@ -263,6 +264,7 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
     case CLOSE_DEVICE: {
         if (g_xbox_dev.is_streaming) {
             g_xbox_dev.is_streaming = false;
+            dib0700_set_streaming(&g_xbox_dev, 0);
             SetEvent(g_xbox_dev.hStopEvent);
             WaitForSingleObject(g_xbox_dev.hStreamThread, 1000);
             CloseHandle(g_xbox_dev.hStreamThread);

@@ -7,6 +7,7 @@
 #define REQUEST_JUMPRAM        0x08
 #define REQUEST_SET_CLOCK      0x0B
 #define REQUEST_SET_GPIO       0x0C
+#define REQUEST_ENABLE_VIDEO   0x0F
 #define REQUEST_SET_I2C_PARAM  0x10
 #define REQUEST_GET_VERSION    0x15
 
@@ -263,4 +264,13 @@ bool dib0700_init(xbox_device_t *dev) {
     Sleep(30);
 
     return true;
+}
+
+int dib0700_set_streaming(xbox_device_t *dev, int onoff) {
+    uint8_t buf[4];
+    buf[0] = REQUEST_ENABLE_VIDEO; /* 0x0F */
+    buf[1] = (onoff != 0) ? 0x10 : 0x00;
+    buf[2] = (onoff != 0) ? 0x01 : 0x00; /* Channel 0, slave mode */
+    buf[3] = 0x00;
+    return dib0700_ctrl_wr(dev, buf, 4);
 }
