@@ -29,6 +29,12 @@ static unsigned __stdcall StreamThreadProc(void *arg) {
     xbox_device_t *dev = (xbox_device_t *)arg;
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
+    FILE *finit = fopen("D:\\temporare\\altdvb_stream.log", "a");
+    if (finit) {
+        fprintf(finit, "StreamThreadProc: ENTERED! ep_in=0x%02X, cb=%p\n", dev->ep_in, g_stream_cb);
+        fclose(finit);
+    }
+
     stream_buf_t *bufs = (stream_buf_t *)malloc(NUM_BUFFERS * sizeof(stream_buf_t));
     if (!bufs) return 1;
 
@@ -44,9 +50,15 @@ static unsigned __stdcall StreamThreadProc(void *arg) {
 
         BOOL res = WinUsb_ReadPipe(dev->hWinUsb, dev->ep_in, bufs[i].buffer, TS_BUFFER_SIZE, &bufs[i].read_bytes, &bufs[i].ov);
         if (!res && GetLastError() != ERROR_IO_PENDING) {
-            /* Error queuing */
+            FILE *ferr = fopen("D:\\temporare\\altdvb_stream.log", "a");
+            if (ferr) {
+                fprintf(ferr, "StreamThreadProc: initial WinUsb_ReadPipe [%d] failed, err=%lu\n", i, GetLastError());
+                fclose(ferr);
+            }
         }
     }
+
+    static bool first_buf_logged = false;
 
     while (dev->is_streaming) {
         DWORD wait_res = WaitForMultipleObjects(NUM_BUFFERS + 1, wait_handles, FALSE, INFINITE);
@@ -60,20 +72,33 @@ static unsigned __stdcall StreamThreadProc(void *arg) {
             ULONG transferred = 0;
 
             if (WinUsb_GetOverlappedResult(dev->hWinUsb, &bufs[idx].ov, &transferred, FALSE)) {
-                if (transferred > 0 && g_stream_cb != NULL) {
+                if (transferred > 0) {
+                    if (!first_buf_logged) {
+                        first_buf_logged = true;
+                        FILE *fb = fopen("D:\\temporare\\altdvb_stream.log", "a");
+                        if (fb) {
+                            fprintf(fb, "StreamThreadProc: First TS buffer! transferred=%lu bytes, byte0=0x%02X, cb=%p\n",
+                                    transferred, bufs[idx].buffer[0], g_stream_cb);
+                            fclose(fb);
+                        }
+                    }
+
                     uint8_t *p = bufs[idx].buffer;
                     ULONG i = 0;
                     while (i + 188 <= transferred) {
                         if (p[i] == 0x47) {
                             g_ts_packet_count++;
-                            if ((g_ts_packet_count % 50000) == 1) {
+                            if ((g_ts_packet_count % 20000) == 1) {
                                 FILE *fs = fopen("D:\\temporare\\altdvb_stream.log", "a");
                                 if (fs) {
-                                    fprintf(fs, "STREAM: dispatched %llu TS packets to AltDVB callback\n", g_ts_packet_count);
+                                    fprintf(fs, "STREAM: dispatched %llu TS packets to AltDVB callback %p\n",
+                                            g_ts_packet_count, g_stream_cb);
                                     fclose(fs);
                                 }
                             }
-                            g_stream_cb(&p[i]);
+                            if (g_stream_cb != NULL) {
+                                g_stream_cb(&p[i]);
+                            }
                             i += 188;
                         } else {
                             /* Resync to next sync byte without losing valid packets */
@@ -84,7 +109,10 @@ static unsigned __stdcall StreamThreadProc(void *arg) {
             }
 
             /* Immediately re-arm the completed buffer to keep the USB hardware pipeline full */
-            ResetEvent(bufs[idx].ov.hEvent);
+            HANDLE hEv = bufs[idx].ov.hEvent;
+            ResetEvent(hEv);
+            memset(&bufs[idx].ov, 0, sizeof(OVERLAPPED));
+            bufs[idx].ov.hEvent = hEv;
             bufs[idx].read_bytes = 0;
             WinUsb_ReadPipe(dev->hWinUsb, dev->ep_in, bufs[idx].buffer, TS_BUFFER_SIZE, &bufs[idx].read_bytes, &bufs[idx].ov);
         }
@@ -99,6 +127,19 @@ static unsigned __stdcall StreamThreadProc(void *arg) {
     }
     free(bufs);
     return 0;
+}
+
+static void StartStreaming(xbox_device_t *dev) {
+    if (!dev->is_streaming && dev->is_initialized) {
+        dev->is_streaming = true;
+        dev->hStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+        dev->hStreamThread = (HANDLE)_beginthreadex(NULL, 0, StreamThreadProc, dev, 0, NULL);
+        FILE *fs = fopen("D:\\temporare\\altdvb_stream.log", "a");
+        if (fs) {
+            fprintf(fs, "StartStreaming: thread launched! is_streaming=%d cb=%p\n", dev->is_streaming, g_stream_cb);
+            fclose(fs);
+        }
+    }
 }
 
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
@@ -117,9 +158,37 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
     return TRUE;
 }
 
+static const char* msg_name(int id) {
+    switch (id) {
+    case 0x10000001: return "DRIVER_DESCRIPTION";
+    case 0x10000002: return "DEVICE_DESCRIPTION";
+    case 0x10000003: return "MESSAGE_CALLBACK";
+    case 0x10000004: return "OPEN_DEVICE";
+    case 0x10000005: return "CLOSE_DEVICE";
+    case 0x10000006: return "DEVICE_NAME";
+    case 0x10000007: return "PID_FILTER";
+    case 0x10000008: return "STREAM_CALLBACK";
+    case 0x10000009: return "TUNE";
+    case 0x1000000A: return "SIGNAL_STATISTICS";
+    case 0x1000000B: return "DEVICE_CONFIG";
+    case 0x1000000C: return "DISEQC_COMMAND";
+    case 0x1000000D: return "DISEQC_SUPPORT";
+    case 0x1000000F: return "DEVICE_WHOLE_TRANSP";
+    default: return "OTHER";
+    }
+}
+
 int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
     if (!data && (msg_id != DEVICE_CONFIG)) {
         return AltxDVB_OK;
+    }
+
+    if (msg_id != SIGNAL_STATISTICS) {
+        FILE *fmsg = fopen("D:\\temporare\\altdvb_msgs.log", "a");
+        if (fmsg) {
+            fprintf(fmsg, "MSG: %s (0x%08X), data=%p\n", msg_name(msg_id), msg_id, data);
+            fclose(fmsg);
+        }
     }
 
     switch (msg_id) {
@@ -187,6 +256,7 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
         if (f) { fprintf(f, "mn88472_init_device OK!\n"); fclose(f); }
 
         g_xbox_dev.is_initialized = true;
+        StartStreaming(&g_xbox_dev);
         return AltxDVB_OK;
     }
 
@@ -206,11 +276,7 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
 
     case STREAM_CALLBACK: {
         g_stream_cb = (STR_CB_PROC)data;
-        if (g_stream_cb && !g_xbox_dev.is_streaming && g_xbox_dev.is_initialized) {
-            g_xbox_dev.is_streaming = true;
-            g_xbox_dev.hStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-            g_xbox_dev.hStreamThread = (HANDLE)_beginthreadex(NULL, 0, StreamThreadProc, &g_xbox_dev, 0, NULL);
-        }
+        StartStreaming(&g_xbox_dev);
         return AltxDVB_OK;
     }
 
@@ -249,6 +315,7 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
         }
 
         mn88472_tune_dvbc(&g_xbox_dev, freq_hz, sr_ks, tune->modulation);
+        StartStreaming(&g_xbox_dev);
         return AltxDVB_OK;
     }
 
@@ -295,6 +362,12 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
     }
 
     case PID_FILTER: {
+        struct PID_FILTER_DATA *pf = (struct PID_FILTER_DATA *)data;
+        FILE *fmsg = fopen("D:\\temporare\\altdvb_msgs.log", "a");
+        if (fmsg && pf) {
+            fprintf(fmsg, "PID_FILTER: op=%d, pid=0x%04X (%d)\n", pf->operation, pf->pid, pf->pid);
+            fclose(fmsg);
+        }
         return AltxDVB_OK;
     }
 
