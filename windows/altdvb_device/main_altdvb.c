@@ -7,6 +7,14 @@ static STR_CB_PROC g_stream_cb = NULL;
 static MSG_CB_PROC g_msg_cb = NULL;
 static struct TUNE_DATA g_last_tune = {0};
 
+/* Adaptive Signal Polling State */
+static volatile DWORD g_last_tune_time = 0;
+static volatile bool g_is_locked = false;
+static int g_last_strength = 0;
+static int g_last_snr = 0;
+static DWORD g_last_stat_query = 0;
+static volatile uint64_t g_ts_packet_count = 0;
+
 /* High-Throughput Asynchronous Ring Buffer Pipeline: 16 x 48128 bytes */
 #define NUM_BUFFERS 16
 #define TS_BUFFER_SIZE 48128 /* 256 * 188 = 94 * 512 */
@@ -57,6 +65,14 @@ static unsigned __stdcall StreamThreadProc(void *arg) {
                     ULONG i = 0;
                     while (i + 188 <= transferred) {
                         if (p[i] == 0x47) {
+                            g_ts_packet_count++;
+                            if ((g_ts_packet_count % 50000) == 1) {
+                                FILE *fs = fopen("D:\\temporare\\altdvb_stream.log", "a");
+                                if (fs) {
+                                    fprintf(fs, "STREAM: dispatched %llu TS packets to AltDVB callback\n", g_ts_packet_count);
+                                    fclose(fs);
+                                }
+                            }
                             g_stream_cb(&p[i]);
                             i += 188;
                         } else {
@@ -219,9 +235,15 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
         uint32_t sr_ks = tune->symbol_rate;
         if (sr_ks == 0) sr_ks = 6900;
 
+        /* Reset lock status on new tune so AltDVB scanner detects 0 -> 1 lock transition */
+        g_is_locked = false;
+        g_last_snr = 0;
+        g_last_stat_query = 0;
+        g_last_tune_time = GetTickCount();
+
         FILE *f = fopen("D:\\temporare\\altdvb_tune.log", "a");
         if (f) {
-            fprintf(f, "TUNE called: raw_freq=%d -> freq_hz=%u, SR=%u, mod=%d\n",
+            fprintf(f, "TUNE called: raw_freq=%d -> freq_hz=%u, SR=%u, mod=%d (lock reset)\n",
                     tune->frequency, freq_hz, sr_ks, tune->modulation);
             fclose(f);
         }
@@ -232,21 +254,37 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
 
     case SIGNAL_STATISTICS: {
         struct SIGNAL_STATISTICS_DATA *sig = (struct SIGNAL_STATISTICS_DATA *)data;
-        static DWORD last_stat_time = 0;
-        static int cached_strength = 77;
-        static int cached_snr = 91;
-        static bool cached_locked = true;
-
-        /* Throttle hardware I2C reads to once every 1000ms to eliminate I2C-induced FIFO micro-stalls */
         DWORD now = GetTickCount();
-        if (now - last_stat_time >= 1000 || last_stat_time == 0) {
-            last_stat_time = now;
-            mn88472_read_status(&g_xbox_dev, &cached_strength, &cached_snr, &cached_locked);
+
+        /* Adaptive polling policy:
+         * - If unlocked or tuned recently (< 3000ms): poll hardware every 100ms
+         *   so that scanning and channel changes detect lock immediately (within 500ms).
+         * - Once solidly locked and streaming: throttle to 1000ms to eliminate
+         *   EP0 I2C traffic that stalls the DiB0700 TS FIFO during 50 Mbps playback.
+         */
+        DWORD poll_interval = (g_is_locked && (now - g_last_tune_time > 3000)) ? 1000 : 100;
+
+        if (now - g_last_stat_query >= poll_interval || g_last_stat_query == 0) {
+            g_last_stat_query = now;
+            bool locked_now = false;
+            int str_now = 0, snr_now = 0;
+            mn88472_read_status(&g_xbox_dev, &str_now, &snr_now, &locked_now);
+
+            g_is_locked = locked_now;
+            g_last_strength = str_now;
+            g_last_snr = snr_now;
+
+            FILE *f = fopen("D:\\temporare\\altdvb_tune.log", "a");
+            if (f) {
+                fprintf(f, "STAT: str=%d%% snr=%d%% locked=%d flags=0x%02X (interval=%lums)\n",
+                        g_last_strength, g_last_snr, g_is_locked, g_is_locked ? 0x1F : 0x00, poll_interval);
+                fclose(f);
+            }
         }
 
-        sig->strength = (short int)cached_strength;
-        sig->quality = (short int)cached_snr;
-        sig->flags = cached_locked ? 0x1F : 0x00;
+        sig->strength = (short int)g_last_strength;
+        sig->quality = (short int)g_last_snr;
+        sig->flags = g_is_locked ? 0x1F : 0x00;
         return AltxDVB_OK;
     }
 
