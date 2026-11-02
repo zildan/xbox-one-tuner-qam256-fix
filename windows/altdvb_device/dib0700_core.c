@@ -136,8 +136,6 @@ static bool dib0700_download_firmware(xbox_device_t *dev) {
         fp = fopen(fw_path, "rb");
     }
     if (!fp) {
-        FILE *f = fopen("D:\\temporare\\altdvb_init.log", "a");
-        if (f) { fprintf(f, "Cannot find firmware file '%s'\n", DIB0700_FIRMWARE_NAME); fclose(f); }
         return false;
     }
 
@@ -157,9 +155,6 @@ static bool dib0700_download_firmware(xbox_device_t *dev) {
     uint8_t ver_buf[16] = {0};
     int ret = xbox_usb_control_msg(dev, 0xC0, REQUEST_GET_VERSION, 0, 0, ver_buf, 16, 500);
     if (ret > 0) {
-        uint32_t fw_version = (ver_buf[8] << 24) | (ver_buf[9] << 16) | (ver_buf[10] << 8) | ver_buf[11];
-        FILE *f = fopen("D:\\temporare\\altdvb_init.log", "a");
-        if (f) { fprintf(f, "DiB0700 already warm! fw_version=0x%08X\n", fw_version); fclose(f); }
         free(fw_data);
         return true;
     }
@@ -169,9 +164,6 @@ static bool dib0700_download_firmware(xbox_device_t *dev) {
     uint8_t buf[260];
     ULONG written = 0;
     int records = 0;
-
-    FILE *f = fopen("D:\\temporare\\altdvb_init.log", "a");
-    if (f) { fprintf(f, "Starting DiB0700 cold-boot firmware upload (%ld bytes)...\n", fsize); fclose(f); }
 
     while (pos < fsize) {
         uint8_t *b = &fw_data[pos];
@@ -193,9 +185,6 @@ static bool dib0700_download_firmware(xbox_device_t *dev) {
 
         BOOL wres = WinUsb_WritePipe(dev->hWinUsb, 0x01, buf, len + 5, &written, NULL);
         if (!wres) {
-            DWORD err = GetLastError();
-            f = fopen("D:\\temporare\\altdvb_init.log", "a");
-            if (f) { fprintf(f, "WinUsb_WritePipe failed at record %d pos %d, err=%lu\n", records, pos, err); fclose(f); }
             free(fw_data);
             return false;
         }
@@ -216,9 +205,6 @@ static bool dib0700_download_firmware(xbox_device_t *dev) {
     jmp[7] = 0x00;
     BOOL jres = WinUsb_WritePipe(dev->hWinUsb, 0x01, jmp, 8, &written, NULL);
     if (!jres) {
-        DWORD err = GetLastError();
-        f = fopen("D:\\temporare\\altdvb_init.log", "a");
-        if (f) { fprintf(f, "JumpRAM WritePipe failed, err=%lu\n", err); fclose(f); }
         return false;
     }
 
@@ -227,15 +213,6 @@ static bool dib0700_download_firmware(xbox_device_t *dev) {
     /* Verify DiB0700 transitioned to warm state */
     memset(ver_buf, 0, sizeof(ver_buf));
     ret = xbox_usb_control_msg(dev, 0xC0, REQUEST_GET_VERSION, 0, 0, ver_buf, 16, 1000);
-    uint32_t fw_ver = (ver_buf[8] << 24) | (ver_buf[9] << 16) | (ver_buf[10] << 8) | ver_buf[11];
-
-    f = fopen("D:\\temporare\\altdvb_init.log", "a");
-    if (f) {
-        fprintf(f, "DiB0700 firmware upload done (%d records). GET_VERSION ret=%d, fw_version=0x%08X\n",
-                records, ret, fw_ver);
-        fclose(f);
-    }
-
     return (ret > 0);
 }
 

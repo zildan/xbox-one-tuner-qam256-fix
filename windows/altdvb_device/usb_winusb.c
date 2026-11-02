@@ -72,26 +72,14 @@ bool xbox_usb_open(xbox_device_t *dev) {
     dev->ep_in = 0x82; /* DiB0700 MPEG-TS bulk endpoint */
     dev->max_packet_size = 512;
     if (WinUsb_QueryInterfaceSettings(dev->hWinUsb, 0, &ifDesc)) {
-        FILE *f = fopen("D:\\temporare\\altdvb_usb.log", "a");
-        if (f) {
-            fprintf(f, "WinUSB bNumEndpoints=%d\n", ifDesc.bNumEndpoints);
-        }
         for (int i = 0; i < ifDesc.bNumEndpoints; i++) {
             WINUSB_PIPE_INFORMATION pipeInfo;
             if (WinUsb_QueryPipe(dev->hWinUsb, 0, (UCHAR)i, &pipeInfo)) {
-                if (f) {
-                    fprintf(f, "Pipe %d: PipeId=0x%02X, Type=%d, MaxPkt=%d\n",
-                            i, pipeInfo.PipeId, pipeInfo.PipeType, pipeInfo.MaximumPacketSize);
-                }
                 if (pipeInfo.PipeId == 0x82) {
                     dev->ep_in = pipeInfo.PipeId;
                     dev->max_packet_size = pipeInfo.MaximumPacketSize;
                 }
             }
-        }
-        if (f) {
-            fprintf(f, "Selected TS Streaming EP: 0x%02X (MaxPkt=%lu)\n", dev->ep_in, dev->max_packet_size);
-            fclose(f);
         }
     }
 
@@ -148,13 +136,6 @@ int xbox_usb_control_msg(xbox_device_t *dev, uint8_t request_type, uint8_t reque
     }
 
     if (!res) {
-        DWORD err = GetLastError();
-        FILE *f = fopen("D:\\temporare\\altdvb_usb_err.log", "a");
-        if (f) {
-            fprintf(f, "ControlTransfer failed: req_type=0x%02X req=0x%02X val=0x%04X idx=0x%04X len=%d -> err=%lu\n",
-                    request_type, request, value, index, size, err);
-            fclose(f);
-        }
         return -1;
     }
     return (int)transferred;

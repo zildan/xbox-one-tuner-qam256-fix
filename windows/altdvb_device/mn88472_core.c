@@ -34,8 +34,6 @@ static bool mn88472_load_firmware(xbox_device_t *dev) {
         fp = fopen(fw_path, "rb");
     }
     if (!fp) {
-        FILE *f = fopen("D:\\temporare\\altdvb_init.log", "a");
-        if (f) { fprintf(f, "Cannot find demod firmware '%s'\n", MN88472_FIRMWARE_NAME); fclose(f); }
         return false;
     }
 
@@ -56,14 +54,9 @@ static bool mn88472_load_firmware(xbox_device_t *dev) {
     uint8_t st = 0;
     int r = dib0700_i2c_read(dev, MN88472_ADDR_B0, 0xf5, &st, 1);
     if (r == 0 && !(st & 0x01)) {
-        FILE *f = fopen("D:\\temporare\\altdvb_init.log", "a");
-        if (f) { fprintf(f, "MN88472 demod firmware already warm (reg 0xf5=0x%02X)\n", st); fclose(f); }
         free(fw_data);
         return true;
     }
-
-    FILE *f = fopen("D:\\temporare\\altdvb_init.log", "a");
-    if (f) { fprintf(f, "Starting MN88472 demod firmware download (%ld bytes)...\n", size); fclose(f); }
 
     /* Put demod in firmware download mode */
     mn88472_write_reg(dev, MN88472_ADDR_B0, 0xf5, 0x03);
@@ -89,13 +82,6 @@ static bool mn88472_load_firmware(xbox_device_t *dev) {
     /* Verify demod status */
     st = 0;
     dib0700_i2c_read(dev, MN88472_ADDR_B0, 0xf5, &st, 1);
-    f = fopen("D:\\temporare\\altdvb_init.log", "a");
-    if (f) {
-        fprintf(f, "MN88472 firmware downloaded, reg 0xf5=0x%02X (running: %s)\n",
-                st, !(st & 0x01) ? "YES" : "NO");
-        fclose(f);
-    }
-
     return !(st & 0x01);
 }
 
@@ -116,8 +102,6 @@ bool mn88472_init_device(xbox_device_t *dev) {
 
     /* 4. Initialize TDA18250 Tuner */
     if (!tda18250_init(dev)) {
-        FILE *f = fopen("D:\\temporare\\altdvb_init.log", "a");
-        if (f) { fprintf(f, "tda18250_init returned false\n"); fclose(f); }
         return false;
     }
 

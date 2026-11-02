@@ -68,12 +68,6 @@ bool tda18250_init(xbox_device_t *dev) {
     uint8_t id[3] = {0};
     dib0700_i2c_read(dev, TDA18250_I2C_ADDR, R00_ID1, id, 3);
 
-    FILE *f = fopen("D:\\temporare\\altdvb_init.log", "a");
-    if (f) {
-        fprintf(f, "TDA18250 probe chip_id: %02x:%02x:%02x\n", id[0], id[1], id[2]);
-        fclose(f);
-    }
-
     if (id[0] != 0xc7 && id[0] != 0x47) {
         return false;
     }
