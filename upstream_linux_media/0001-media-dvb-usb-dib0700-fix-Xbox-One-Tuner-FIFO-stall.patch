@@ -29,6 +29,8 @@ Fix this in xbox_one_attach() by:
 3. Setting mn88472_config.ts_clock = VARIABLE_TS_CLOCK for smoother TS
    FIFO pacing.
 
+Fixes: c4d84547d5ae ("media: dib0700: add support for Xbox One Digital TV Tuner")
+Cc: stable@vger.kernel.org
 Signed-off-by: zildan <zildan@users.noreply.github.com>
 ---
  drivers/media/usb/dvb-usb/dib0700_devices.c | 6 ++++--
