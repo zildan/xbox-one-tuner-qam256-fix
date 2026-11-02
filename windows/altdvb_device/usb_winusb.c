@@ -8,6 +8,8 @@ DEFINE_GUID(GUID_DEVINTERFACE_USB_DEVICE, 0xA5DCBF10L, 0x6530, 0x11D2, 0x90, 0x1
 DEFINE_GUID(GUID_DEVINTERFACE_WINUSB,     0xdee824ef, 0x729b, 0x4a0e, 0x9c, 0x14, 0xb7, 0x11, 0x7d, 0x33, 0xa8, 0x17);
 
 xbox_device_t g_xbox_dev = {0};
+char g_module_dir[MAX_PATH] = {0};
+HINSTANCE g_hModule = NULL;
 
 bool xbox_usb_open(xbox_device_t *dev) {
     if (dev->hWinUsb != NULL) return true;
@@ -67,21 +69,38 @@ bool xbox_usb_open(xbox_device_t *dev) {
 
     /* Configure WinUSB endpoint settings */
     USB_INTERFACE_DESCRIPTOR ifDesc;
+    dev->ep_in = 0x82; /* DiB0700 MPEG-TS bulk endpoint */
+    dev->max_packet_size = 512;
     if (WinUsb_QueryInterfaceSettings(dev->hWinUsb, 0, &ifDesc)) {
+        FILE *f = fopen("D:\\temporare\\altdvb_usb.log", "a");
+        if (f) {
+            fprintf(f, "WinUSB bNumEndpoints=%d\n", ifDesc.bNumEndpoints);
+        }
         for (int i = 0; i < ifDesc.bNumEndpoints; i++) {
             WINUSB_PIPE_INFORMATION pipeInfo;
             if (WinUsb_QueryPipe(dev->hWinUsb, 0, (UCHAR)i, &pipeInfo)) {
-                if ((pipeInfo.PipeId & 0x80) && (pipeInfo.PipeType == UsbdPipeTypeBulk)) {
+                if (f) {
+                    fprintf(f, "Pipe %d: PipeId=0x%02X, Type=%d, MaxPkt=%d\n",
+                            i, pipeInfo.PipeId, pipeInfo.PipeType, pipeInfo.MaximumPacketSize);
+                }
+                if (pipeInfo.PipeId == 0x82) {
                     dev->ep_in = pipeInfo.PipeId;
                     dev->max_packet_size = pipeInfo.MaximumPacketSize;
-                    break;
                 }
             }
         }
+        if (f) {
+            fprintf(f, "Selected TS Streaming EP: 0x%02X (MaxPkt=%lu)\n", dev->ep_in, dev->max_packet_size);
+            fclose(f);
+        }
     }
 
-    /* Set raw I/O for minimum latency and direct buffers */
-    UCHAR rawIO = TRUE;
+    /* Set pipe policy for EP 0x01 (Firmware download) */
+    ULONG out_timeout = 2000;
+    WinUsb_SetPipePolicy(dev->hWinUsb, 0x01, PIPE_TRANSFER_TIMEOUT, sizeof(out_timeout), &out_timeout);
+
+    /* Disable RAW_IO to enable WinUSB multi-packet buffering */
+    UCHAR rawIO = FALSE;
     WinUsb_SetPipePolicy(dev->hWinUsb, dev->ep_in, RAW_IO, sizeof(rawIO), &rawIO);
 
     ULONG timeout = 3000;
@@ -126,6 +145,13 @@ int xbox_usb_control_msg(xbox_device_t *dev, uint8_t request_type, uint8_t reque
     }
 
     if (!res) {
+        DWORD err = GetLastError();
+        FILE *f = fopen("D:\\temporare\\altdvb_usb_err.log", "a");
+        if (f) {
+            fprintf(f, "ControlTransfer failed: req_type=0x%02X req=0x%02X val=0x%04X idx=0x%04X len=%d -> err=%lu\n",
+                    request_type, request, value, index, size, err);
+            fclose(f);
+        }
         return -1;
     }
     return (int)transferred;

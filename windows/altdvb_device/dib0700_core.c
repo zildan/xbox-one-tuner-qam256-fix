@@ -1,13 +1,16 @@
 #include "xbox_device.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 #define REQUEST_I2C_READ       0x02
 #define REQUEST_I2C_WRITE      0x03
-#define REQUEST_SET_USB_XFER_LEN 0x07
-#define REQUEST_ENABLE_VIDEO_STREAM 0x09
+#define REQUEST_JUMPRAM        0x08
 #define REQUEST_SET_CLOCK      0x0B
-#define REQUEST_SET_GPIO       0x0D
-#define REQUEST_SET_I2C_SPEED  0x14
+#define REQUEST_SET_GPIO       0x0C
+#define REQUEST_GET_VERSION    0x15
+
+#define GPIO6_PIN  8
+#define GPIO10_PIN 15
 
 int dib0700_ctrl_wr(xbox_device_t *dev, uint8_t *tx, uint8_t txlen) {
     int ret = xbox_usb_control_msg(dev,
@@ -19,25 +22,24 @@ int dib0700_ctrl_wr(xbox_device_t *dev, uint8_t *tx, uint8_t txlen) {
 }
 
 int dib0700_ctrl_rd(xbox_device_t *dev, uint8_t *tx, uint8_t txlen, uint8_t *rx, uint8_t rxlen) {
-    int ret = xbox_usb_control_msg(dev,
-                                   0x40, /* USB_TYPE_VENDOR | USB_DIR_OUT */
-                                   tx[0],
-                                   0, 0,
-                                   tx, txlen, 1000);
-    if (ret != txlen) return -1;
+    uint16_t value = ((txlen - 2) << 8) | tx[1];
+    uint16_t index = 0;
+    if (txlen > 2)
+        index |= (tx[2] << 8);
+    if (txlen > 3)
+        index |= tx[3];
 
-    ret = xbox_usb_control_msg(dev,
-                               0xC0, /* USB_TYPE_VENDOR | USB_DIR_IN */
-                               tx[0],
-                               0, 0,
-                               rx, rxlen, 1000);
-    return ret;
+    int status = xbox_usb_control_msg(dev,
+                                      0xC0, /* USB_TYPE_VENDOR | USB_DIR_IN */
+                                      tx[0],
+                                      value, index,
+                                      rx, rxlen, 1000);
+    return status;
 }
 
-/* Atomic I2C Write via REQUEST_I2C_WRITE */
 int dib0700_i2c_write(xbox_device_t *dev, uint8_t addr, const uint8_t *buf, int len) {
     uint8_t tx[64];
-    if (len + 2 > sizeof(tx)) return -1;
+    if (len + 2 > (int)sizeof(tx)) return -1;
 
     tx[0] = REQUEST_I2C_WRITE;
     tx[1] = addr << 1;
@@ -46,11 +48,10 @@ int dib0700_i2c_write(xbox_device_t *dev, uint8_t addr, const uint8_t *buf, int 
     return dib0700_ctrl_wr(dev, tx, len + 2);
 }
 
-/* Atomic Combined I2C Write+Read via REQUEST_I2C_READ (Our QAM-256 Fix!) */
 int dib0700_i2c_read(xbox_device_t *dev, uint8_t addr, uint8_t reg, uint8_t *buf, int len) {
     uint8_t tx[4];
     uint8_t rx[64];
-    if (len > sizeof(rx)) return -1;
+    if (len > (int)sizeof(rx)) return -1;
 
     tx[0] = REQUEST_I2C_READ;
     tx[1] = (addr << 1) | 0x01;
@@ -64,12 +65,11 @@ int dib0700_i2c_read(xbox_device_t *dev, uint8_t addr, uint8_t reg, uint8_t *buf
 }
 
 bool dib0700_set_gpio(xbox_device_t *dev, uint8_t gpio, uint8_t dir, uint8_t val) {
-    uint8_t b[4];
+    uint8_t b[3];
     b[0] = REQUEST_SET_GPIO;
     b[1] = gpio;
     b[2] = ((dir & 0x01) << 7) | ((val & 0x01) << 6);
-    b[3] = 0;
-    return (dib0700_ctrl_wr(dev, b, 4) == 0);
+    return (dib0700_ctrl_wr(dev, b, 3) == 0);
 }
 
 static bool dib0700_set_clock(xbox_device_t *dev, uint8_t en_pll, uint8_t pll_src,
@@ -89,7 +89,6 @@ static bool dib0700_set_clock(xbox_device_t *dev, uint8_t en_pll, uint8_t pll_sr
     return (dib0700_ctrl_wr(dev, b, 10) == 0);
 }
 
-/* 72 MHz Clock Configuration */
 static bool dib0700_ctrl_clock(xbox_device_t *dev, uint32_t clk_mhz, uint8_t clock_gpio3) {
     if (clk_mhz == 72) {
         return dib0700_set_clock(dev, 1, 0, 1, clock_gpio3, 2, 24);
@@ -97,48 +96,147 @@ static bool dib0700_ctrl_clock(xbox_device_t *dev, uint32_t clk_mhz, uint8_t clo
     return false;
 }
 
-/* 1000 kHz Fast I2C Speed Configuration */
-static bool dib0700_set_i2c_speed(xbox_device_t *dev, uint16_t speed_khz) {
-    uint8_t b[4];
-    uint16_t divider;
+/* Parse and load DiB0700 USB firmware from Intel HEX format */
+static bool dib0700_download_firmware(xbox_device_t *dev) {
+    char fw_path[MAX_PATH];
+    FILE *fp = NULL;
 
-    if (speed_khz >= 1000) divider = 1;
-    else if (speed_khz >= 400) divider = 2;
-    else divider = 8;
+    if (g_module_dir[0] != '\0') {
+        snprintf(fw_path, sizeof(fw_path), "%s%s", g_module_dir, DIB0700_FIRMWARE_NAME);
+        fp = fopen(fw_path, "rb");
+    }
+    if (!fp) {
+        snprintf(fw_path, sizeof(fw_path), "Devices/%s", DIB0700_FIRMWARE_NAME);
+        fp = fopen(fw_path, "rb");
+    }
+    if (!fp) {
+        snprintf(fw_path, sizeof(fw_path), "%s", DIB0700_FIRMWARE_NAME);
+        fp = fopen(fw_path, "rb");
+    }
+    if (!fp) {
+        FILE *f = fopen("D:\\temporare\\altdvb_init.log", "a");
+        if (f) { fprintf(f, "Cannot find firmware file '%s'\n", DIB0700_FIRMWARE_NAME); fclose(f); }
+        return false;
+    }
 
-    b[0] = REQUEST_SET_I2C_SPEED;
-    b[1] = 0;
-    b[2] = (divider >> 8) & 0xff;
-    b[3] = divider & 0xff;
-    return (dib0700_ctrl_wr(dev, b, 4) == 0);
+    fseek(fp, 0, SEEK_END);
+    long fsize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    uint8_t *fw_data = (uint8_t *)malloc(fsize);
+    if (!fw_data) {
+        fclose(fp);
+        return false;
+    }
+    fread(fw_data, 1, fsize, fp);
+    fclose(fp);
+
+    /* Test if already warm (running firmware) */
+    uint8_t ver_buf[16] = {0};
+    int ret = xbox_usb_control_msg(dev, 0xC0, REQUEST_GET_VERSION, 0, 0, ver_buf, 16, 500);
+    if (ret > 0) {
+        uint32_t fw_version = (ver_buf[8] << 24) | (ver_buf[9] << 16) | (ver_buf[10] << 8) | ver_buf[11];
+        FILE *f = fopen("D:\\temporare\\altdvb_init.log", "a");
+        if (f) { fprintf(f, "DiB0700 already warm! fw_version=0x%08X\n", fw_version); fclose(f); }
+        free(fw_data);
+        return true;
+    }
+
+    /* Cold State: Download Intel Hex Records through Bulk Pipe 0x01 */
+    int pos = 0;
+    uint8_t buf[260];
+    ULONG written = 0;
+    int records = 0;
+
+    FILE *f = fopen("D:\\temporare\\altdvb_init.log", "a");
+    if (f) { fprintf(f, "Starting DiB0700 cold-boot firmware upload (%ld bytes)...\n", fsize); fclose(f); }
+
+    while (pos < fsize) {
+        uint8_t *b = &fw_data[pos];
+        uint8_t len = b[0];
+        if (pos + len + 4 >= fsize) break;
+
+        uint32_t addr = b[1] | (b[2] << 8);
+        uint8_t type = b[3];
+        if (type == 0x04) {
+            addr |= (b[4] << 24) | (b[5] << 16);
+        }
+
+        buf[0] = len;
+        buf[1] = (addr >> 8) & 0xff;
+        buf[2] = addr & 0xff;
+        buf[3] = type;
+        memcpy(&buf[4], &b[4], len);
+        buf[4 + len] = b[4 + len]; /* chk */
+
+        BOOL wres = WinUsb_WritePipe(dev->hWinUsb, 0x01, buf, len + 5, &written, NULL);
+        if (!wres) {
+            DWORD err = GetLastError();
+            f = fopen("D:\\temporare\\altdvb_init.log", "a");
+            if (f) { fprintf(f, "WinUsb_WritePipe failed at record %d pos %d, err=%lu\n", records, pos, err); fclose(f); }
+            free(fw_data);
+            return false;
+        }
+        records++;
+        pos += len + 5;
+    }
+    free(fw_data);
+
+    /* JumpRAM to 0x70000000 to start DiB0700 CPU */
+    uint8_t jmp[8];
+    jmp[0] = REQUEST_JUMPRAM;
+    jmp[1] = 0;
+    jmp[2] = 0;
+    jmp[3] = 0;
+    jmp[4] = 0x70;
+    jmp[5] = 0x00;
+    jmp[6] = 0x00;
+    jmp[7] = 0x00;
+    BOOL jres = WinUsb_WritePipe(dev->hWinUsb, 0x01, jmp, 8, &written, NULL);
+    if (!jres) {
+        DWORD err = GetLastError();
+        f = fopen("D:\\temporare\\altdvb_init.log", "a");
+        if (f) { fprintf(f, "JumpRAM WritePipe failed, err=%lu\n", err); fclose(f); }
+        return false;
+    }
+
+    Sleep(500);
+
+    /* Verify DiB0700 transitioned to warm state */
+    memset(ver_buf, 0, sizeof(ver_buf));
+    ret = xbox_usb_control_msg(dev, 0xC0, REQUEST_GET_VERSION, 0, 0, ver_buf, 16, 1000);
+    uint32_t fw_ver = (ver_buf[8] << 24) | (ver_buf[9] << 16) | (ver_buf[10] << 8) | ver_buf[11];
+
+    f = fopen("D:\\temporare\\altdvb_init.log", "a");
+    if (f) {
+        fprintf(f, "DiB0700 firmware upload done (%d records). GET_VERSION ret=%d, fw_version=0x%08X\n",
+                records, ret, fw_ver);
+        fclose(f);
+    }
+
+    return (ret > 0);
 }
 
 bool dib0700_init(xbox_device_t *dev) {
+    /* 0. Cold boot firmware load if tuner was unplugged / power cycled */
+    dib0700_download_firmware(dev);
+
     /* 1. Set Internal Clock to 72 MHz (Our QAM-256 Fix!) */
     dib0700_ctrl_clock(dev, 72, 1);
 
-    /* 2. Set I2C speed to 1000 kHz Fast Mode (Our QAM-256 Fix!) */
-    dib0700_set_i2c_speed(dev, 1000);
-
-    /* 3. Frontend Power Enable via GPIO6 */
-    dib0700_set_gpio(dev, 6, 1, 0); /* GPIO6 OUT 0 */
+    /* 2. Frontend Power Enable via GPIO6 (Physical Pin 8) */
+    dib0700_set_gpio(dev, GPIO6_PIN, 1, 0);
     Sleep(30);
-    dib0700_set_gpio(dev, 6, 1, 1); /* GPIO6 OUT 1 */
+    dib0700_set_gpio(dev, GPIO6_PIN, 1, 1);
     Sleep(30);
 
-    /* 4. Reset Demod via GPIO10 */
-    dib0700_set_gpio(dev, 10, 1, 0); /* GPIO10 OUT 0 */
+    /* 3. Reset Demod via GPIO10 (Physical Pin 15) */
+    dib0700_set_gpio(dev, GPIO10_PIN, 1, 1);
     Sleep(30);
-    dib0700_set_gpio(dev, 10, 1, 1); /* GPIO10 OUT 1 */
+    dib0700_set_gpio(dev, GPIO10_PIN, 1, 0);
     Sleep(30);
-
-    /* 5. Set MPEG-TS Packet Buffer Size */
-    uint8_t b[4];
-    b[0] = REQUEST_SET_USB_XFER_LEN;
-    b[1] = 0;
-    b[2] = 0;
-    b[3] = 21; /* 21 * 188 = 3948 bytes (standard USB buffer) */
-    dib0700_ctrl_wr(dev, b, 4);
+    dib0700_set_gpio(dev, GPIO10_PIN, 1, 1);
+    Sleep(30);
 
     return true;
 }

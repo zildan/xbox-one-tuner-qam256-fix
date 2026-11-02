@@ -30,6 +30,8 @@ typedef struct {
 } xbox_device_t;
 
 extern xbox_device_t g_xbox_dev;
+extern char g_module_dir[MAX_PATH];
+extern HINSTANCE g_hModule;
 
 /* WinUSB functions */
 bool xbox_usb_open(xbox_device_t *dev);
@@ -46,6 +48,8 @@ int  dib0700_i2c_read(xbox_device_t *dev, uint8_t addr, uint8_t reg, uint8_t *bu
 bool dib0700_set_gpio(xbox_device_t *dev, uint8_t gpio, uint8_t dir, uint8_t val);
 
 /* Demodulator & Tuner functions */
+bool tda18250_init(xbox_device_t *dev);
+bool tda18250_tune_dvbc(xbox_device_t *dev, uint32_t freq_hz);
 bool mn88472_init_device(xbox_device_t *dev);
 bool mn88472_tune_dvbc(xbox_device_t *dev, uint32_t freq_hz, uint32_t symbol_rate_ks, int qam_mode);
 bool mn88472_read_status(xbox_device_t *dev, int *strength, int *snr, bool *locked);
