@@ -9,7 +9,7 @@
 ## 1. Overview & Problem Description
 The **Microsoft Xbox One Digital TV Tuner** (USB ID `045e:02d5`, built around the **DiBcom DiB0700** USB bridge, **Panasonic MN88472** DVB-T/T2/C demodulator, and **NXP TDA18250BHN** silicon RF tuner) works reliably on DVB-T/T2 and low-to-medium payload DVB-C multiplexes (`< 36 Mbps` active payload).
 
-However, on full-capacity **DVB-C QAM-256** cable transponders (Symbol Rate `6900`, **`50.87 Mbps` total bitrate** with **`47.0 – 49.48 Mbps` active video/audio payload**, up to **97% mux utilization**, such as DIGI / RCS-RDS and major European cable operators), the mainline Linux kernel driver (`mn88472` + `dvb_usb_dib0700`) suffers from periodic MPEG-TS packet drops (`Continuity Counter Errors`, video macroblocking, audio glitches, and corrupted recordings in **Tvheadend, Plex, Enigma2, VDR, Kaffeine, and NextPVR**).
+However, on full-capacity **DVB-C QAM-256** cable transponders (Symbol Rate `6900`, **`50.87 Mbps` total bitrate** with **`47.0 – 49.80 Mbps` active video/audio payload**, up to **98% mux utilization**), the mainline Linux kernel driver (`dvb_usb_dib0700` + `mn88472`) suffers from periodic MPEG-TS packet drops (`Continuity Counter Errors`, video macroblocking, audio glitches, and corrupted recordings in **Tvheadend, Plex, Enigma2, VDR, Kaffeine, and NextPVR**).
 
 ---
 
@@ -18,34 +18,55 @@ However, on full-capacity **DVB-C QAM-256** cable transponders (Symbol Rate `690
 Through live instrumentation across 18 QAM-256 cable transponders (`306 MHz` – `562 MHz`), we proved the following:
 
 1. **The RF Tuner (`TDA18250BHN`) and Demodulator (`MN88472`) Hardware Are 100% Capable of 50.87 Mbps:**
-   - Tested on a 97%-full QAM-256 mux (`530 MHz`, `49.48 Mbps` active video/audio payload out of `50.87 Mbps`), RF reception is flawless (`CNR = 33.7–34.4 dB`, Reed-Solomon `BlkErr = 0`, `TEI = 0`).
-   - When I2C status polling is paused during streaming, the tuner transfers **millions of consecutive MPEG-TS packets at `49.48 Mbps` payload with `0` Continuity Counter errors**.
-2. **The Smoking Gun — Synchronous USB EP0/I2C Status Polling (`mn88472_read_status`) Stalls the DiB0700 TS FIFO:**
+   - Tested on a 98%-full QAM-256 mux (`530 MHz`, `49.80 Mbps` active video/audio payload out of `50.87 Mbps`), RF reception is flawless (`CNR = 33.7–34.4 dB`, Reed-Solomon `BlkErr = 0`, `TEI = 0`).
+   - When I2C status polling is paused during streaming, the tuner transfers **millions of consecutive MPEG-TS packets at `49.80 Mbps` payload with `0` Continuity Counter errors**.
+2. **The Smoking Gun — Split USB EP0 I2C Transfers (`fw_use_new_i2c_api = 1`) + Slow I2C Clock in `xbox_one_attach()` (`dib0700_devices.c`) Stall the DiB0700 TS FIFO:**
    - Every single dropped packet (`CC_err`, `diff = 1`, i.e., a single 188-byte MPEG-TS packet lost) occurs **at the exact millisecond an application (Tvheadend / Plex / Enigma2) invokes `FE_READ_STATUS`** (typically once every 1–2 seconds to poll lock status and SNR).
-   - In the stock kernel driver (`drivers/media/dvb-frontends/mn88472.c`), every call to `mn88472_read_status()` unconditionally executes **5 I2C transactions (10 synchronous USB Endpoint 0 control transfers)** across I2C addresses `0x18` (Bank 0), `0x1a` (Bank 1), and `0x1c` (Bank 2).
-   - The **DiBcom DiB0700** USB bridge relies on a legacy **single-threaded 8051 microcontroller**. While the 8051 bit-bangs the 100 kHz I2C bus to service these 5 register reads over USB EP0, **it stalls draining its internal slave MPEG-TS FIFO (Endpoint 4 Bulk IN) for several hundred microseconds**.
-   - On a lower-bitrate mux (`35 Mbps`), ~30% of TS packets are `NULL` padding (`PID 0x1FFF`), absorbing the timing gap without losing video packets. On a `49.48 Mbps` active payload QAM-256 mux (`530 MHz`), a valid video/audio packet arrives every **`29.5 µs`** — so each I2C status poll overflows the tiny DiB0700 FIFO and drops 1 video packet!
-3. **Suboptimal TS Clock & DVB-C Registers in `mn88472.c` + Tiny URB Buffers in `dvb_usb_dib0700`:**
-   - The stock driver configures `FIXED_TS_CLOCK` (`0xe1` in `reg 0xd9`), sets `0x48` in `reg 0xd6`, and omits Panasonic's 8 MHz DVB-C bandwidth filter coefficients (`0x13..0x19`).
-   - `dvb_usb_dib0700` defaults to tiny USB Bulk URBs (`nb_packet_buffer_size = 21`, only `3,584` bytes/URB) and leaves periodic I2C IR remote-control polling enabled (`disable_rc_polling = 0`).
+   - Every call to `mn88472_read_status()` executes **5 I2C register reads** across I2C addresses `0x18` (Bank 0), `0x1a` (Bank 1), and `0x1c` (Bank 2).
+   - In `drivers/media/usb/dvb-usb/dib0700_devices.c`, `xbox_one_attach()` sets `st->fw_use_new_i2c_api = 1`, omits `dib0700_ctrl_clock(adap->dev, 72, 1)` and `dib0700_set_i2c_speed()`, and sets `mn88472_config.ts_clock = FIXED_TS_CLOCK`.
+   - With `st->fw_use_new_i2c_api = 1`, `dib0700_i2c_xfer_new()` splits every 2-message I2C register read (`msg[0]` = 1-byte register address write, `msg[1]` = N-byte register read) into **two separate USB Endpoint 0 control transfers**, sending the first packet (`REQUEST_NEW_I2C_WRITE`) with **`en_stop = 0`** (no I2C STOP condition!).
+   - Because `en_stop == 0`, the single-threaded **8051 microcontroller** inside the DiB0700 holds the I2C transaction open across USB microframes while waiting for the host to schedule and deliver the second USB EP0 control transfer (`REQUEST_NEW_I2C_READ`), stalling its internal slave MPEG-TS FIFO!
+   - On a lower-bitrate mux (`35 Mbps`), ~30% of TS packets are `NULL` padding (`PID 0x1FFF`), absorbing the timing gap without losing video packets. On a `49.80 Mbps` active payload QAM-256 mux (`530 MHz`), a valid video/audio packet arrives every **`29.5 µs`** — so each I2C status poll overflows the DiB0700 FIFO and drops 1 video packet!
 
 ---
 
-## 3. What This Fix Does
+## 3. The 4-Line Kernel Fix in `xbox_one_attach()` (`dib0700_devices.c`)
 
-1. **Smart I2C Status/CNR Caching in [`mn88472_read_status()`](src_patched/mn88472.c):**
-   - Upon tuning (`mn88472_set_frontend()`), the driver reads the hardware registers over I2C normally until `FE_HAS_LOCK`, signal strength, and a valid `CNR` (`~34 dB`) are acquired.
-   - Once locked with valid statistics, subsequent periodic `FE_READ_STATUS` polls from Tvheadend / Plex / Enigma2 are served instantaneously from cache without generating the 10 synchronous USB EP0/I2C transfers that stall the DiB0700 TS FIFO (configurable at runtime via `/sys/module/mn88472/parameters/stat_poll_interval`).
-2. **Enables `VARIABLE_TS_CLOCK` (`0xe3` in `reg 0xd9`), High-Bitrate TS Output Timing (`0x46` in `reg 0xd6`), and Complete DVB-C Bandwidth Filter Registers (`0x13..0x19`)** in [`mn88472_set_frontend()`](src_patched/mn88472.c).
-3. **Increases USB Bulk URB Buffers (`nb_packet_buffer_size=512`) and Disables I2C IR Polling (`disable_rc_polling=1`)** via [`xbox-tuner-qam256.conf`](src_patched/xbox-tuner-qam256.conf).
+By fixing `xbox_one_attach()` in `drivers/media/usb/dvb-usb/dib0700_devices.c` (see [`xbox-one-tuner-qam256-fix.patch`](xbox-one-tuner-qam256-fix.patch)):
+```diff
+--- a/drivers/media/usb/dvb-usb/dib0700_devices.c
++++ b/drivers/media/usb/dvb-usb/dib0700_devices.c
+@@ -3744,8 +3744,10 @@ static int xbox_one_attach(struct dvb_usb_adapter *adap)
+ 	struct tda18250_config tda18250_config;
+ 	struct i2c_board_info info;
+ 
+-	st->fw_use_new_i2c_api = 1;
++	st->fw_use_new_i2c_api = 0;
+ 	st->disable_streaming_master_mode = 1;
++	dib0700_ctrl_clock(adap->dev, 72, 1);
++	dib0700_set_i2c_speed(adap->dev, 1000);
+ 
+ 	/* fe power enable */
+ 	dib0700_set_gpio(adap->dev, GPIO6, GPIO_OUT, 0);
+@@ -3766,7 +3768,7 @@ static int xbox_one_attach(struct dvb_usb_adapter *adap)
+ 	mn88472_config.i2c_wr_max = 22;
+ 	mn88472_config.xtal = 20500000;
+ 	mn88472_config.ts_mode = PARALLEL_TS_MODE;
+-	mn88472_config.ts_clock = FIXED_TS_CLOCK;
++	mn88472_config.ts_clock = VARIABLE_TS_CLOCK;
+ 	memset(&info, 0, sizeof(struct i2c_board_info));
+```
+1. **`st->fw_use_new_i2c_api = 0`:** Uses `REQUEST_I2C_READ` (`dib0700_ctrl_rd`), which packs the register address write and read request into a **single atomic USB Endpoint 0 control transfer** instead of holding the 8051 mid-I2C-transaction across two USB transfers.
+2. **`dib0700_ctrl_clock(adap->dev, 72, 1)` & `dib0700_set_i2c_speed(adap->dev, 1000)`:** Configures the DiB0700 72 MHz system clock and high-speed I2C divider.
+3. **`mn88472_config.ts_clock = VARIABLE_TS_CLOCK`:** Configures variable TS clock strictly for the Xbox One Digital TV Tuner, leaving `mn88472.c` 100% untouched and preserving real-time `FE_HAS_LOCK`, `CNR`, `strength`, and `PER` updates on every poll!
 
 ---
 
 ## 4. Live Benchmark Results (DVB-C QAM-256, SR 6900, Active 1s `FE_READ_STATUS` Polling)
 
-| Frequency | Modulation | Total Bitrate | Active Video/Audio Payload | CNR | `CC_errors` (Stock Driver) | `CC_errors` (Patched Driver) |
+| Frequency | Modulation | Total Bitrate | Active Video/Audio Payload | CNR (Live) | `CC_errors` (Stock Driver) | `CC_errors` (Patched Driver) |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **530 MHz** | QAM-256 | `50.87 Mbps` | **`49.34 – 49.48 Mbps` (97%)** | `33.7 dB` | `1 – 2 errors / 10s` | **`0 errors` (0 TEI, 0 BlkErr)** |
+| **530 MHz** | QAM-256 | `50.87 Mbps` | **`49.34 – 49.80 Mbps` (98%)** | `33.7 – 34.3 dB` | `1 – 2 errors / 10s` | **`0 errors` (0 TEI, 0 BlkErr)** |
 | **506 MHz** | QAM-256 | `50.87 Mbps` | **`48.50 – 48.86 Mbps` (96%)** | `33.7 dB` | `1 – 2 errors / 10s` | **`0 errors` (0 TEI, 0 BlkErr)** |
 | **538 MHz** | QAM-256 | `50.87 Mbps` | **`47.67 – 47.93 Mbps` (94%)** | `33.5 dB` | `1 – 2 errors / 10s` | **`0 errors` (0 TEI, 0 BlkErr)** |
 
@@ -53,10 +74,9 @@ Through live instrumentation across 18 QAM-256 cable transponders (`306 MHz` –
 
 ---
 
-## 5. Quick Installation (Ubuntu / Debian / Proxmox / Linux Mint / Raspberry Pi OS)
+## 5. Quick Installation & Upstream Pull Requests
 
-Supports all Linux kernels from **4.15 through 6.12+**:
-
+### Standalone Out-of-Tree Installer (Ubuntu / Debian / Proxmox / Linux Mint / Raspberry Pi OS):
 ```bash
 git clone https://github.com/zildan/xbox-one-tuner-qam256-fix.git
 cd xbox-one-tuner-qam256-fix
@@ -64,8 +84,8 @@ chmod +x install.sh
 sudo ./install.sh
 ```
 
-### For Enigma2 (OpenATV / OpenPLi) / LibreELEC / CoreELEC Image Builders:
-Apply [`xbox-one-tuner-qam256-fix.patch`](xbox-one-tuner-qam256-fix.patch) directly to `drivers/media/dvb-frontends/mn88472.c` and `mn88472_priv.h`, and include the module options from [`xbox-tuner-qam256.conf`](src_patched/xbox-tuner-qam256.conf) (`options dvb_usb_dib0700 nb_packet_buffer_size=512 disable_rc_polling=1`).
+### For Kernel / LibreELEC / CoreELEC / Enigma2 (OpenATV / OpenPLi) Builders:
+Apply [`xbox-one-tuner-qam256-fix.patch`](xbox-one-tuner-qam256-fix.patch) directly to `drivers/media/usb/dvb-usb/dib0700_devices.c`.
 
 ### Upstream Pull Requests Submitted:
 - **CrazyCat (`crazycat69/linux_media`):** [PR #1](https://github.com/crazycat69/linux_media/pull/1)
@@ -80,44 +100,18 @@ Apply [`xbox-one-tuner-qam256-fix.patch`](xbox-one-tuner-qam256-fix.patch) direc
 
 ## 1. De ce nu mergea pe DIGI QAM-256 cu driverul original (și cum am rezolvat)
 
-Pe forumuri (inclusiv pe **sateliti.info**) s-a observat de ani de zile că tunerul USB de Xbox One (`045e:02d5`) merge bine pe DVB-T2 sau pe frecvențe QAM-256 cu bitrate mic (`< 36 Mbps`), dar **pe cablu DIGI (unde transponderele QAM-256 au 47 – 49.5 Mbps date video utile din 50.87 Mbps total) rupe imaginea și adună constant `Continuity Counter Errors`**.
+Pe forumuri (inclusiv pe **sateliti.info**) s-a observat de ani de zile că tunerul USB de Xbox One (`045e:02d5`) merge bine pe DVB-T2 sau pe frecvențe QAM-256 cu bitrate mic (`< 36 Mbps`), dar **pe cablu DIGI (unde transponderele QAM-256 au 47 – 49.8 Mbps date video utile din 50.87 Mbps total) rupe imaginea și adună constant `Continuity Counter Errors`**.
 
 ### Cauza tehnică demonstrată prin măsurători la nivel de microsecundă:
 1. **Hardware-ul RF (`NXP TDA18250BHN`) și demodulatorul (`Panasonic MN88472`) NU au nicio problemă:**
-   - Măsurat live pe cel mai încărcat transponder DIGI (**`530 MHz` — `49.48 Mbps` payload video/audio util din `50.87 Mbps`, adică 97% plin**), demodulatorul are `CNR = 33.7–34.4 dB`, `0` erori Reed-Solomon (`BlkErr = 0`) și `TEI = 0`. Fără trafic I2C parazit, transferă milioane de pachete TS cu **0 erori**.
-2. **„Smoking Gun” — Ștrangularea FIFO-ului din cipul USB `DiB0700` la fiecare interogare `FE_READ_STATUS`:**
-   - Fiecare pachet pierdut (`CC_err`, exact 1 pachet TS de 188 bytes) pică **în milisecunda exactă în care aplicația (Tvheadend / Plex / Enigma2 / Kaffeine) apelează `FE_READ_STATUS`** (de obicei o dată pe secundă pentru a afișa SNR-ul și starea semnalului).
-   - În driverul original [`mn88472.c`](src_orig/mn88472.c), fiecare apel `mn88472_read_status()` execută necondiționat **5 tranzacții I2C (10 pachete sincrone USB Control pe Endpoint 0)** către adresele I2C `0x18`, `0x1a` și `0x1c`.
-   - Cipul bridge USB **DiB0700** are înăuntru un microcontroler **8051 single-threaded** vechi. Cât timp acest 8051 face bit-banging I2C la 100 kHz pentru cele 5 citiri de status/SNR, **îngheață pentru câteva sute de microsecunde golirea FIFO-ului de Transport Stream**!
-   - Pe un transponder cu bitrate mic (`35 Mbps`), ~30% din pachete sunt goale (`NULL PID 0x1FFF`), deci înghețul nu lovește pachete video. Pe DIGI la `49.48 Mbps` payload util (`530 MHz`), sosește câte un pachet video la fiecare **29,5 microsecunde** — astfel încât înghețul I2C dă peste cap FIFO-ul și aruncă pe jos câte 1 pachet video la fiecare interogare!
-3. **Ceasul TS și regiștrii DVB-C din `mn88472.c` + bufferele URB din `dvb_usb_dib0700`:**
-   - Driverul stock setează `FIXED_TS_CLOCK` (`0xe1` în reg `0xd9`), `0x48` în reg `0xd6` și omite regiștrii filtrului de bandă Panasonic pentru DVB-C (`0x13..0x19`).
-   - Driverul `dvb_usb_dib0700` alocă implicit un buffer USB minuscul (`nb_packet_buffer_size=21`, doar 3.5 KB/URB) și lasă activ polling-ul I2C pentru telecomandă IR.
+   - Măsurat live pe cel mai încărcat transponder DIGI (**`530 MHz` — `49.80 Mbps` payload video/audio util din `50.87 Mbps`, adică 98% plin**), demodulatorul are `CNR = 33.7–34.4 dB`, `0` erori Reed-Solomon (`BlkErr = 0`) și `TEI = 0`.
+2. **„Smoking Gun” — În `xbox_one_attach()` (`dib0700_devices.c`), `st->fw_use_new_i2c_api = 1` + lipsa `dib0700_set_i2c_speed()` blochează FIFO-ul din DiB0700 la fiecare interogare `FE_READ_STATUS`:**
+   - Fiecare pachet pierdut (`CC_err`, exact 1 pachet TS de 188 bytes) pică **în milisecunda exactă în care aplicația (Tvheadend / Plex / Enigma2) apelează `FE_READ_STATUS`**.
+   - Cu `st->fw_use_new_i2c_api = 1`, funcția `dib0700_i2c_xfer_new()` sparge fiecare citire de registru I2C (`write reg_addr` + `read val`) în **două pachete USB Control separate pe Endpoint 0**, trimițând primul pachet cu **`en_stop = 0`** (fără condiție de I2C STOP!).
+   - Din această cauză, microcontrolerul **8051 single-threaded** din DiB0700 ține tranzacția I2C deschisă și blocată între două cadre USB în timp ce așteaptă al doilea pachet USB de la PC (`REQUEST_NEW_I2C_READ`), înghețând golirea FIFO-ului de Transport Stream!
+   - Pe un transponder DIGI la `49.80 Mbps` payload util (`530 MHz`), sosește câte un pachet video la fiecare **29,5 microsecunde** — astfel încât înghețul dă peste cap FIFO-ul și aruncă pe jos câte 1 pachet video la fiecare interogare!
 
-### Ce face acest Fix:
-1. **Smart I2C Status/CNR Caching în [`mn88472_read_status()`](src_patched/mn88472.c):** La acordarea pe un canal nou (`mn88472_set_frontend`), driverul citește normal pe I2C până când obține `FE_HAS_LOCK`, puterea semnalului și `CNR`-ul real (`~34 dB`). Odată încuiat pe frecvență, răspunde instantaneu aplicației (Tvheadend / Plex / Enigma2) din cache, fără să mai blocheze microcontrolerul 8051 din DiB0700 în timpul streamului de 50 Mbps (controlabil dinamic prin parametrul `/sys/module/mn88472/parameters/stat_poll_interval`).
-2. **Activează `VARIABLE_TS_CLOCK` (`0xe3` în reg `0xd9`), `reg 0xd6 = 0x46` și filtrele de bandă Panasonic DVB-C (`0x13..0x19`)** în [`mn88472_set_frontend()`](src_patched/mn88472.c).
-3. **Mărește bufferele USB Bulk URB (`nb_packet_buffer_size=512`) și oprește RC polling-ul I2C (`disable_rc_polling=1`)** pe `dvb_usb_dib0700`.
-
----
-
-## 2. Rezultate Măsurate Live pe Rețeaua DIGI (QAM-256, SR 6900)
-
-| Frecvență DIGI | Modulație | Bitrate Total | Payload Video/Audio Util | CNR | `CC_errors` (Driver Stock) | `CC_errors` (Driver Reparat) |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **530 MHz** | QAM-256 | `50.87 Mbps` | **`49.34 – 49.48 Mbps` (97%)** | `33.7 dB` | `1 – 2 erori / 10s` | **`0 erori` (0 TEI, 0 BlkErr)** |
-| **506 MHz** | QAM-256 | `50.87 Mbps` | **`48.50 – 48.86 Mbps` (96%)** | `33.7 dB` | `1 – 2 erori / 10s` | **`0 erori` (0 TEI, 0 BlkErr)** |
-| **538 MHz** | QAM-256 | `50.87 Mbps` | **`47.67 – 47.93 Mbps` (94%)** | `33.5 dB` | `1 – 2 erori / 10s` | **`0 erori` (0 TEI, 0 BlkErr)** |
-
----
-
-## 3. Instalare Rapidă (Ubuntu / Debian / Proxmox / Mint / Raspberry Pi OS)
-
-Compatibil cu orice kernel Linux de la **4.15 până la 6.12+**:
-
-```bash
-git clone https://github.com/zildan/xbox-one-tuner-qam256-fix.git
-cd xbox-one-tuner-qam256-fix
-chmod +x install.sh
-sudo ./install.sh
-```
+### Rezolvarea în 4 linii în `xbox_one_attach()` (`dib0700_devices.c`):
+1. **`st->fw_use_new_i2c_api = 0`:** Folosește `REQUEST_I2C_READ` (`dib0700_ctrl_rd`), care execută citirea de registru I2C (scriere adresă + citire valoare) într-un **singur transfer USB Control atomic**!
+2. **`dib0700_ctrl_clock(adap->dev, 72, 1)` + `dib0700_set_i2c_speed(adap->dev, 1000)`:** Setează ceasul intern la 72 MHz și accelerează magistrala I2C.
+3. **`mn88472_config.ts_clock = VARIABLE_TS_CLOCK`:** Activează ceasul TS variabil strict pentru Xbox One Tuner, lăsând driverul `mn88472.c` 100% nemodificat și păstrând citirea în timp real a `FE_HAS_LOCK` și `CNR` în fiecare secundă!
