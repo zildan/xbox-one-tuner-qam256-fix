@@ -7,62 +7,76 @@ static STR_CB_PROC g_stream_cb = NULL;
 static MSG_CB_PROC g_msg_cb = NULL;
 static struct TUNE_DATA g_last_tune = {0};
 
-/* TS Packet Buffer: 48128 bytes = 256 * 188 bytes = 94 * 512 bytes (Multiple of MaxPacketSize and TS packet) */
-#define TS_BUFFER_SIZE 48128
+/* High-Throughput Asynchronous Ring Buffer Pipeline: 8 x 48128 bytes */
+#define NUM_BUFFERS 8
+#define TS_BUFFER_SIZE 48128 /* 256 * 188 = 94 * 512 */
+
+typedef struct {
+    OVERLAPPED ov;
+    uint8_t buffer[TS_BUFFER_SIZE];
+    ULONG read_bytes;
+} stream_buf_t;
 
 static unsigned __stdcall StreamThreadProc(void *arg) {
     xbox_device_t *dev = (xbox_device_t *)arg;
-    uint8_t buffer[TS_BUFFER_SIZE];
-    ULONG read_bytes = 0;
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
-    OVERLAPPED ov;
-    memset(&ov, 0, sizeof(ov));
-    ov.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    stream_buf_t *bufs = (stream_buf_t *)malloc(NUM_BUFFERS * sizeof(stream_buf_t));
+    if (!bufs) return 1;
 
-    HANDLE wait_handles[2] = { dev->hStopEvent, ov.hEvent };
+    HANDLE wait_handles[NUM_BUFFERS + 1];
+    wait_handles[0] = dev->hStopEvent;
+
+    /* Pre-arm all 8 overlapped transfers into the Windows USB kernel queue */
+    for (int i = 0; i < NUM_BUFFERS; i++) {
+        memset(&bufs[i].ov, 0, sizeof(OVERLAPPED));
+        bufs[i].ov.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+        wait_handles[i + 1] = bufs[i].ov.hEvent;
+        bufs[i].read_bytes = 0;
+
+        BOOL res = WinUsb_ReadPipe(dev->hWinUsb, dev->ep_in, bufs[i].buffer, TS_BUFFER_SIZE, &bufs[i].read_bytes, &bufs[i].ov);
+        if (!res && GetLastError() != ERROR_IO_PENDING) {
+            /* Error queuing */
+        }
+    }
 
     while (dev->is_streaming) {
-        if (WaitForSingleObject(dev->hStopEvent, 0) == WAIT_OBJECT_0) {
+        DWORD wait_res = WaitForMultipleObjects(NUM_BUFFERS + 1, wait_handles, FALSE, INFINITE);
+        if (wait_res == WAIT_OBJECT_0) {
+            /* Stop event signaled */
             break;
         }
 
-        ResetEvent(ov.hEvent);
-        read_bytes = 0;
+        if (wait_res >= (WAIT_OBJECT_0 + 1) && wait_res < (WAIT_OBJECT_0 + 1 + NUM_BUFFERS)) {
+            int idx = (int)(wait_res - (WAIT_OBJECT_0 + 1));
+            ULONG transferred = 0;
 
-        BOOL res = WinUsb_ReadPipe(dev->hWinUsb, dev->ep_in, buffer, sizeof(buffer), &read_bytes, &ov);
-        if (!res) {
-            DWORD err = GetLastError();
-            if (err == ERROR_IO_PENDING) {
-                DWORD w = WaitForMultipleObjects(2, wait_handles, FALSE, 2000);
-                if (w == WAIT_OBJECT_0) {
-                    /* Stop event signaled */
-                    CancelIo(dev->hDev);
-                    break;
-                } else if (w == WAIT_OBJECT_0 + 1) {
-                    /* Read completed */
-                    if (WinUsb_GetOverlappedResult(dev->hWinUsb, &ov, &read_bytes, TRUE)) {
-                        res = TRUE;
+            if (WinUsb_GetOverlappedResult(dev->hWinUsb, &bufs[idx].ov, &transferred, FALSE)) {
+                if (transferred > 0 && g_stream_cb != NULL) {
+                    uint8_t *p = bufs[idx].buffer;
+                    for (ULONG i = 0; i + 188 <= transferred; i += 188) {
+                        if (p[i] == 0x47) {
+                            g_stream_cb(&p[i]);
+                        }
                     }
-                } else {
-                    /* Timeout */
-                    CancelIo(dev->hDev);
-                    continue;
                 }
             }
-        }
 
-        if (res && read_bytes > 0 && g_stream_cb != NULL) {
-            for (ULONG i = 0; i + 188 <= read_bytes; i += 188) {
-                if (buffer[i] == 0x47) {
-                    g_stream_cb(&buffer[i]);
-                }
-            }
+            /* Immediately re-arm the completed buffer to keep the USB hardware pipeline full */
+            ResetEvent(bufs[idx].ov.hEvent);
+            bufs[idx].read_bytes = 0;
+            WinUsb_ReadPipe(dev->hWinUsb, dev->ep_in, bufs[idx].buffer, TS_BUFFER_SIZE, &bufs[idx].read_bytes, &bufs[idx].ov);
         }
     }
 
-    if (ov.hEvent) {
-        CloseHandle(ov.hEvent);
+    /* Cancel any remaining pending I/O and free events */
+    CancelIo(dev->hDev);
+    for (int i = 0; i < NUM_BUFFERS; i++) {
+        if (bufs[i].ov.hEvent) {
+            CloseHandle(bufs[i].ov.hEvent);
+        }
     }
+    free(bufs);
     return 0;
 }
 

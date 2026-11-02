@@ -103,6 +103,9 @@ bool xbox_usb_open(xbox_device_t *dev) {
     UCHAR rawIO = FALSE;
     WinUsb_SetPipePolicy(dev->hWinUsb, dev->ep_in, RAW_IO, sizeof(rawIO), &rawIO);
 
+    UCHAR auto_clear = TRUE;
+    WinUsb_SetPipePolicy(dev->hWinUsb, dev->ep_in, AUTO_CLEAR_STALL, sizeof(auto_clear), &auto_clear);
+
     ULONG timeout = 3000;
     WinUsb_SetPipePolicy(dev->hWinUsb, dev->ep_in, PIPE_TRANSFER_TIMEOUT, sizeof(timeout), &timeout);
 
