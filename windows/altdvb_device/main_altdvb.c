@@ -7,8 +7,8 @@ static STR_CB_PROC g_stream_cb = NULL;
 static MSG_CB_PROC g_msg_cb = NULL;
 static struct TUNE_DATA g_last_tune = {0};
 
-/* High-Throughput Asynchronous Ring Buffer Pipeline: 8 x 48128 bytes */
-#define NUM_BUFFERS 8
+/* High-Throughput Asynchronous Ring Buffer Pipeline: 16 x 48128 bytes */
+#define NUM_BUFFERS 16
 #define TS_BUFFER_SIZE 48128 /* 256 * 188 = 94 * 512 */
 
 typedef struct {
@@ -27,7 +27,7 @@ static unsigned __stdcall StreamThreadProc(void *arg) {
     HANDLE wait_handles[NUM_BUFFERS + 1];
     wait_handles[0] = dev->hStopEvent;
 
-    /* Pre-arm all 8 overlapped transfers into the Windows USB kernel queue */
+    /* Pre-arm all 16 overlapped transfers into the Windows USB kernel queue */
     for (int i = 0; i < NUM_BUFFERS; i++) {
         memset(&bufs[i].ov, 0, sizeof(OVERLAPPED));
         bufs[i].ov.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -54,9 +54,14 @@ static unsigned __stdcall StreamThreadProc(void *arg) {
             if (WinUsb_GetOverlappedResult(dev->hWinUsb, &bufs[idx].ov, &transferred, FALSE)) {
                 if (transferred > 0 && g_stream_cb != NULL) {
                     uint8_t *p = bufs[idx].buffer;
-                    for (ULONG i = 0; i + 188 <= transferred; i += 188) {
+                    ULONG i = 0;
+                    while (i + 188 <= transferred) {
                         if (p[i] == 0x47) {
                             g_stream_cb(&p[i]);
+                            i += 188;
+                        } else {
+                            /* Resync to next sync byte without losing valid packets */
+                            i++;
                         }
                     }
                 }
@@ -227,23 +232,21 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
 
     case SIGNAL_STATISTICS: {
         struct SIGNAL_STATISTICS_DATA *sig = (struct SIGNAL_STATISTICS_DATA *)data;
-        int strength = 0, snr = 0;
-        bool locked = false;
+        static DWORD last_stat_time = 0;
+        static int cached_strength = 77;
+        static int cached_snr = 91;
+        static bool cached_locked = true;
 
-        mn88472_read_status(&g_xbox_dev, &strength, &snr, &locked);
-        sig->strength = (short int)strength;
-        sig->quality = (short int)snr;
-        sig->flags = locked ? 0x1F : 0x00;
-
-        static int stat_log_cnt = 0;
-        if ((stat_log_cnt++ % 5) == 0) {
-            FILE *f = fopen("D:\\temporare\\altdvb_tune.log", "a");
-            if (f) {
-                fprintf(f, "STAT: strength=%d%%, snr=%d%%, locked=%d, flags=0x%02x\n",
-                        strength, snr, locked, sig->flags);
-                fclose(f);
-            }
+        /* Throttle hardware I2C reads to once every 1000ms to eliminate I2C-induced FIFO micro-stalls */
+        DWORD now = GetTickCount();
+        if (now - last_stat_time >= 1000 || last_stat_time == 0) {
+            last_stat_time = now;
+            mn88472_read_status(&g_xbox_dev, &cached_strength, &cached_snr, &cached_locked);
         }
+
+        sig->strength = (short int)cached_strength;
+        sig->quality = (short int)cached_snr;
+        sig->flags = cached_locked ? 0x1F : 0x00;
         return AltxDVB_OK;
     }
 

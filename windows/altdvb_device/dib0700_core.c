@@ -7,6 +7,7 @@
 #define REQUEST_JUMPRAM        0x08
 #define REQUEST_SET_CLOCK      0x0B
 #define REQUEST_SET_GPIO       0x0C
+#define REQUEST_SET_I2C_PARAM  0x10
 #define REQUEST_GET_VERSION    0x15
 
 #define GPIO6_PIN  8
@@ -94,6 +95,26 @@ static bool dib0700_ctrl_clock(xbox_device_t *dev, uint32_t clk_mhz, uint8_t clo
         return dib0700_set_clock(dev, 1, 0, 1, clock_gpio3, 2, 24);
     }
     return false;
+}
+
+static bool dib0700_set_i2c_speed(xbox_device_t *dev, uint16_t speed_khz) {
+    uint8_t b[8];
+    uint16_t divider;
+
+    if (speed_khz == 0) return false;
+
+    b[0] = REQUEST_SET_I2C_PARAM;
+    divider = (uint16_t)(30000 / speed_khz);
+    b[1] = 0;
+    b[2] = (uint8_t)(divider >> 8);
+    b[3] = (uint8_t)(divider & 0xff);
+    divider = (uint16_t)(72000 / speed_khz);
+    b[4] = (uint8_t)(divider >> 8);
+    b[5] = (uint8_t)(divider & 0xff);
+    b[6] = (uint8_t)(divider >> 8);
+    b[7] = (uint8_t)(divider & 0xff);
+
+    return (dib0700_ctrl_wr(dev, b, 8) == 0);
 }
 
 /* Parse and load DiB0700 USB firmware from Intel HEX format */
@@ -223,6 +244,9 @@ bool dib0700_init(xbox_device_t *dev) {
 
     /* 1. Set Internal Clock to 72 MHz (Our QAM-256 Fix!) */
     dib0700_ctrl_clock(dev, 72, 1);
+
+    /* 2. Set I2C speed to 1000 kHz Fast Mode Plus (Our QAM-256 Fix!) */
+    dib0700_set_i2c_speed(dev, 1000);
 
     /* 2. Frontend Power Enable via GPIO6 (Physical Pin 8) */
     dib0700_set_gpio(dev, GPIO6_PIN, 1, 0);
