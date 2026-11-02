@@ -1,0 +1,3 @@
+LIBRARY "Dev_XboxOne_QAM256"
+EXPORTS
+    DvbDeviceControl=DvbDeviceControl
