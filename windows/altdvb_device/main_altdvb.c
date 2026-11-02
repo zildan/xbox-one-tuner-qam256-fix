@@ -84,25 +84,22 @@ static unsigned __stdcall StreamThreadProc(void *arg) {
                     }
 
                     uint8_t *p = bufs[idx].buffer;
-                    ULONG i = 0;
-                    while (i + 188 <= transferred) {
-                        if (p[i] == 0x47) {
-                            g_ts_packet_count++;
-                            if ((g_ts_packet_count % 20000) == 1) {
-                                FILE *fs = fopen("D:\\temporare\\altdvb_stream.log", "a");
-                                if (fs) {
-                                    fprintf(fs, "STREAM: dispatched %llu TS packets to AltDVB callback %p\n",
-                                            g_ts_packet_count, g_stream_cb);
-                                    fclose(fs);
-                                }
+                    ULONG offset = 0;
+                    if (p[0] != 0x47) {
+                        /* Validate packet boundary using 2-packet TS sync validation */
+                        for (ULONG k = 0; k < 188 && (k + 188) < transferred; k++) {
+                            if (p[k] == 0x47 && p[k + 188] == 0x47) {
+                                offset = k;
+                                break;
                             }
-                            if (g_stream_cb != NULL) {
+                        }
+                    }
+
+                    if (g_stream_cb != NULL) {
+                        for (ULONG i = offset; i + 188 <= transferred; i += 188) {
+                            if (p[i] == 0x47) {
                                 g_stream_cb(&p[i]);
                             }
-                            i += 188;
-                        } else {
-                            /* Resync to next sync byte without losing valid packets */
-                            i++;
                         }
                     }
                 }
@@ -343,11 +340,13 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
             g_last_strength = str_now;
             g_last_snr = snr_now;
 
-            FILE *f = fopen("D:\\temporare\\altdvb_tune.log", "a");
-            if (f) {
-                fprintf(f, "STAT: str=%d%% snr=%d%% locked=%d flags=0x%02X (interval=%lums)\n",
-                        g_last_strength, g_last_snr, g_is_locked, g_is_locked ? 0x1F : 0x00, poll_interval);
-                fclose(f);
+            if (now - g_last_tune_time < 3000) {
+                FILE *f = fopen("D:\\temporare\\altdvb_tune.log", "a");
+                if (f) {
+                    fprintf(f, "STAT: str=%d%% snr=%d%% locked=%d flags=0x%02X\n",
+                            g_last_strength, g_last_snr, g_is_locked, g_is_locked ? 0x1F : 0x00);
+                    fclose(f);
+                }
             }
         }
 
