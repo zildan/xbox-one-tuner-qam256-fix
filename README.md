@@ -94,6 +94,16 @@ Apply [`xbox-one-tuner-qam256-fix.patch`](xbox-one-tuner-qam256-fix.patch) direc
 - **LibreELEC-AML S905/S912 (`dtechsrv/LibreELEC-AML`):** [PR #52](https://github.com/dtechsrv/LibreELEC-AML/pull/52)
 
 ---
+
+## 6. Windows Support (AltDVB Direct Device Module) — ⚠️ EXPERIMENTAL / BETA
+
+> ⚠️ **DISCLAIMER / WARNING (TESTING PHASE)**:
+> The native Windows user-space device module for **AltDVB** (`windows/altdvb_device/Dev_XboxOne_QAM256.int`) is currently in **EXPERIMENTAL / BETA TESTING**.
+> - It is **not yet guaranteed to be 100% stable** across all system environments and USB host controllers. Occasional video artifacts may still occur.
+> - **Use and test entirely at your own risk!**
+> - For installation steps, WinUSB setup via Zadig, and recommended DirectShow settings (Default Video Renderer / VMR-9), see [windows/altdvb_device/README.md](windows/altdvb_device/README.md).
+
+---
 ---
 
 # 🇷🇴 Documentație în Limba Română
@@ -115,3 +125,15 @@ Pe forumuri (inclusiv pe **sateliti.info**) s-a observat de ani de zile că tune
 1. **`st->fw_use_new_i2c_api = 0`:** Folosește `REQUEST_I2C_READ` (`dib0700_ctrl_rd`), care execută citirea de registru I2C (scriere adresă + citire valoare) într-un **singur transfer USB Control atomic**!
 2. **`dib0700_ctrl_clock(adap->dev, 72, 1)` + `dib0700_set_i2c_speed(adap->dev, 1000)`:** Setează ceasul intern la 72 MHz și accelerează magistrala I2C.
 3. **`mn88472_config.ts_clock = VARIABLE_TS_CLOCK`:** Activează ceasul TS variabil strict pentru Xbox One Tuner, lăsând driverul `mn88472.c` 100% nemodificat și păstrând citirea în timp real a `FE_HAS_LOCK` și `CNR` în fiecare secundă!
+
+---
+
+## 2. Modul Windows pentru AltDVB (`Dev_XboxOne_QAM256.int`) — ⚠️ VERSIUNE DE TEST / EXPERIMENTALĂ
+
+> ⚠️ **AVERTISMENT / DISCLAIMER IMPORTANT**:
+> Modulul nativ pentru Windows destinat aplicației **AltDVB** (aflat în folderul [`windows/altdvb_device/`](windows/altdvb_device/)) este în stadiul de **TEST / EXPERIMENTAL (BETA)** și **NU este considerat încă 100% stabil**.
+> - Imaginea este mult îmbunătățită și funcțională pe canalele HD (DIGI Sport, Nat Geo etc.), însă pe anumite configurații de sistem sau multiplexuri dense mai pot apărea ocazional artefacte video.
+> - **Fiecare utilizator testează pe propria răspundere! (Use and test at your own risk)**
+> - Modulul funcționează direct în user-space prin **WinUSB** (fără driver BDA proprietar) și include pipeline-ul asincron de 16 buffere suprapuse și magistrală I2C accelerată la 1000 kHz.
+> - **Recomandare setări AltDVB:** La *Settings -> DirectShow Config -> Video Renderer*, alegeți **Default Video Renderer** sau **Video Mixing Renderer 9 (VMR-9)** (filtrul EVR poate afișa ecran negru pe Windows 10/11).
+> - Instrucțiunile complete de instalare și configurare se găsesc în [Documentația modulului Windows](windows/altdvb_device/README.md).

@@ -1,6 +1,18 @@
 # Dev_XboxOne_QAM256 — Direct Device Module for AltDVB (Windows)
 
-Acest modul permite utilizarea tunerului **Microsoft Xbox One Digital TV Tuner (`045e:02d5`)** direct în **AltDVB** pe Windows (10/11), beneficiind de fix-ul nostru dezvoltat pentru eliminarea erorilor de continuitate pe multiplexurile de cablu DVB-C QAM-256 de mare viteză (SR 6900, ~50 Mbps).
+> ⚠️ **AVERTISMENT / DISCLAIMER (STATUS: TEST / EXPERIMENTAL)**
+> 
+> Acest modul de Windows pentru AltDVB (`Dev_XboxOne_QAM256.int`) este în stadiu de **TEST / EXPERIMENTAL (BETA)** și **NU este considerat încă 100% stabil**.
+> - Imaginea este mult mai stabilă față de soluțiile anterioare, însă pe anumite configurații sau multiplexuri dense mai pot apărea ocazional artefacte.
+> - **Fiecare utilizator testează pe propria răspundere! (Use and test at your own risk!)**
+> - Proiectul este oferit „așa cum este” (*as is*), fără garanții de stabilitate absolută. Feedback-ul și testele comunității sunt binevenite!
+
+---
+
+## 📌 Recomandări importante pentru redare în AltDVB
+1. **Renderer Video:** În AltDVB, la **Settings -> DirectShow Config -> Main -> Video -> Renderer**, selectați **Default Video Renderer** sau **Video Mixing Renderer 9 (VMR-9)**.  
+   *(Pe Windows 10/11, „Enhanced Video Renderer / EVR” poate produce ecran negru fără imagine).*
+2. **Decodoare DirectShow (32-bit):** AltDVB este o aplicație x86 (32-bit), deci necesită codecuri DirectShow pe 32-bit (ex: **LAV Filters x86** sau **Microsoft DTV-DVD Video Decoder**).
 
 ---
 
