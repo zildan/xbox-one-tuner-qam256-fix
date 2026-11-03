@@ -87,8 +87,8 @@ bool xbox_usb_open(xbox_device_t *dev) {
     ULONG out_timeout = 2000;
     WinUsb_SetPipePolicy(dev->hWinUsb, 0x01, PIPE_TRANSFER_TIMEOUT, sizeof(out_timeout), &out_timeout);
 
-    /* Disable RAW_IO to enable WinUSB multi-packet buffering */
-    UCHAR rawIO = FALSE;
+    /* Enable RAW_IO for zero-copy, direct DMA transfer without intermediate buffering */
+    UCHAR rawIO = TRUE;
     WinUsb_SetPipePolicy(dev->hWinUsb, dev->ep_in, RAW_IO, sizeof(rawIO), &rawIO);
 
     UCHAR auto_clear = TRUE;
