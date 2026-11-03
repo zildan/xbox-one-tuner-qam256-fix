@@ -132,11 +132,14 @@ bool mn88472_tune_dvbc(xbox_device_t *dev, uint32_t freq_hz, uint32_t symbol_rat
     mn88472_write_reg(dev, MN88472_ADDR_B2, 0x11, 0xcd);
     mn88472_write_reg(dev, MN88472_ADDR_B2, 0x12, 0xb0);
 
-    /* 5. Set DVB-C Bank 0 Equalizer registers */
+    /* 5. Set DVB-C Bank 0 Equalizer registers & high-bitrate bandwidth/TS timing */
+    mn88472_write_reg(dev, MN88472_ADDR_B0, 0x46, 0x00);
+    mn88472_write_reg(dev, MN88472_ADDR_B0, 0xae, 0x00);
+    mn88472_write_reg(dev, MN88472_ADDR_B0, 0xb0, 0x00);
     mn88472_write_reg(dev, MN88472_ADDR_B0, 0xb4, 0x00);
     mn88472_write_reg(dev, MN88472_ADDR_B0, 0xcd, 0x17);
     mn88472_write_reg(dev, MN88472_ADDR_B0, 0xd4, 0x09);
-    mn88472_write_reg(dev, MN88472_ADDR_B0, 0xd6, 0x48);
+    mn88472_write_reg(dev, MN88472_ADDR_B0, 0xd6, 0x46); /* High-bitrate timing (0x46) */
 
     /* 6. Reset Demodulator FSM to start locking */
     mn88472_write_reg(dev, MN88472_ADDR_B2, 0xf8, 0x9f);
