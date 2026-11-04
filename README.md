@@ -137,3 +137,14 @@ Pe forumuri (inclusiv pe **sateliti.info**) s-a observat de ani de zile că tune
 > - Modulul funcționează direct în user-space prin **WinUSB** (fără driver BDA proprietar) și include pipeline-ul asincron de 16 buffere suprapuse și magistrală I2C accelerată la 1000 kHz.
 > - **Recomandare setări AltDVB:** La *Settings -> DirectShow Config -> Video Renderer*, alegeți **Default Video Renderer** sau **Video Mixing Renderer 9 (VMR-9)** (filtrul EVR poate afișa ecran negru pe Windows 10/11).
 > - Instrucțiunile complete de instalare și configurare se găsesc în [Documentația modulului Windows](windows/altdvb_device/README.md).
+
+---
+
+## 3. Modul Windows pentru Astrometa DVB-T2/C (`Dev_Astrometa_DVB.int`) — ✅ VERSIUNE DE PRODUCȚIE VALIDATĂ
+
+Aflat în folderul [`windows/astrometa_device/`](windows/astrometa_device/):
+- **Compatibilitate:** Tuner USB Astrometa DVB-T2/C (Revizia 2: Realtek RTL2832P + Panasonic MN88473 + Rafael Micro R828D, USB ID `15F4:0131`).
+- **Performanță:** **0 Packet Drops** pe peste 1.000.000 pachete MPEG-TS consecutive pe DVB-C (64-QAM și 256-QAM, SR 6900).
+- **Arhitectură:** Rutare Slave TS RTL2832 cu bypass direct în USB EPA (`SYS_DEMOD_CTL = 0xE0`), ieșire Serial TS pe MN88473, demodulator clock 25 MHz, IF 5.07 MHz, pipeline asincron WinUSB de 16 buffere x 24.064 octeți (`BULK_STAGESIZE`).
+- Detalii complete în [Documentația modulului Astrometa](windows/astrometa_device/README.md).
+

@@ -1,0 +1,3 @@
+LIBRARY "Dev_Astrometa_DVB"
+EXPORTS
+    DvbDeviceControl=DvbDeviceControl
