@@ -131,7 +131,9 @@ static unsigned __stdcall StreamThreadProc(void *arg) {
                         if (chunk[k] == 0x47 && chunk[k + 188] == 0x47) {
                             chunk_pos = k;
                             synced = true;
-                            log_dbg("StreamThread: SYNC ACQUIRED at offset %u!\n", k);
+                            if (pkt_count == 0) {
+                                log_dbg("StreamThread: Initial SYNC ACQUIRED at offset %u!\n", k);
+                            }
                             break;
                         }
                     }
