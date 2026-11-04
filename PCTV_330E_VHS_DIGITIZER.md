@@ -9,6 +9,7 @@ Dispozitivul conectat este un tuner hibrid USB 2.0 din generația clasică Pinna
 * **Product ID (PID):** `0x0226` (PCTV 330e / Pinnacle Hybrid Pro 330e)
 * **Serial Number:** `071101161601`
 * **Driver Linux:** Modul `em28xx` (`EM2882_BOARD_PINNACLE_HYBRID_PRO_330E`)
+* **Repository dedicat Gitea:** `https://git.gbc.xyz/zil/pctv-330e-vhs-digitizer`
 
 ---
 
@@ -23,51 +24,40 @@ Dispozitivul conectat este un tuner hibrid USB 2.0 din generația clasică Pinna
 
 ---
 
-## 3. De ce este TVP5150 ideal pentru Casete VHS
+## 3. PCTV 330e vs PCTV 340e (De ce 330e este mult superior pentru VHS)
 
-Spre deosebire de adaptoarele ieftine de captură USB comerciale (EasyCap cu cipurile UTV007, AMT630 sau macro-decodoare ieftine):
-1. **Rezistență la Timebase Jitter & Drop-out-uri:** Casetele VHS suferă de variații mari de viteză ale tamburului cu capete video (skew, flagging, jitter). TVP5150 nu dă ecran albastru („Blue Screen”) și nu întrerupe stream-ul de cadre la căderi de semnal.
-2. **Filtru pieptene adaptiv 4H (4-Line Adaptive Comb Filter):** Separă precis componenta de luminanță ($Y$) de cea de crominanță ($C$), eliminând efectul de „curcubeu” sau moiré pe texturile fine din înregistrările VHS PAL.
-3. **Control Automat al Câștigului (AGC) și Clamping:** Ajustează automat nivelul de negru și albul la semnale atenuate sau casete înregistrate în mod LP (Long Play).
+Pe modelul mai nou 340e (`2304:023d`), producătorul a tăiat costurile și a trecut la platforma DiBcom DiB0700 + XC4000, eliminând decodorul video dedicat TI TVP5150. Din acest motiv, conform LinuxTV, pe 340e captura video analogică nu funcționează sub Linux (*„analog TV is out of reach / stick does not work with v4l”*).
 
----
-
-## 4. Soluții de Conectare la VCR în lipsa Mufei Originale Breakout
-
-Pinnacle 330e a venit din fabrică cu o mufă laterală proprietară compactă cu 8-10 pini care se ramifica în RCA Galben (Composite), Mini-DIN (S-Video) și Jack/RCA Audio.
-
-### Opțiunea A: Captură prin Modulatorul RF al Videocasetofonului (Fără modificări hardware)
-Orice VCR casnic dispune de un modulator RF intern (UHF Canal 36 / 591.25 MHz):
-1. Conectați un cablu coaxial TV normal între mufa **RF OUT / AERIAL OUT** a videocasetofonului și mufa de antenă a stick-ului Pinnacle 330e.
-2. În softul de captură (DirectShow sau V4L2), selectați intrarea **Tuner TV Analogic** pe norma **PAL B/G**.
-3. Tunerul Xceive XC3028 demodulează canalul și livrează semnalul video baseband direct în pinul `TVP5150_COMPOSITE0`.
-
-### Opțiunea B: Lipire directă a unui cablu RCA Composite + Audio pe PCB
-Dacă desfaceți carcasa din plastic (clipsată pe margine), pe placa electronică:
-* **Composite Video In:** Este legat la intrarea analogică **AIP1B** a cipului TI TVP5150AM1 (prin condensator SMD $0.1\,\mu\text{F}$ serie și rezistență de sarcină $75\,\Omega$).
-* **Luma Y (pentru S-Video):** Pinul **AIP1A** al cipului TVP5150.
-* **Chroma C (pentru S-Video):** Pinul **AIP1B** al cipului TVP5150.
-* **Audio Stereo In:** Pinii de intrare linie analogică (Line-In L / Line-In R) ai cipului eMPIA EM2882.
-* **GND (Masă comună):** Ecranajul metalic al mufei USB sau al conectorului de antenă.
+Modelul **330e** pe care îl deținem are suport nativ analogic complet în nucleul Linux prin `em28xx` și un decodor broadcast TI de top.
 
 ---
 
-## 5. Captură Software
+## 4. Soluție Hardware pentru Lipsa Mufei Originale: Modding Pigtail RCA
+
+Conectorul lateral este un mini-header dreptunghiular ultra-slim proprietar. În locul unui cablu original greu de găsit și predispus la contact imperfect, se realizează un pigtail de 15 cm cu 3 mufe RCA mamă:
+* **Video Composite (RCA Galben):** Pinul 2 (`AIP1B`) al cipului TI TVP5150 (printr-un condensator SMD de cuplare de $0.1\,\mu\text{F}$ serie și rezistență de terminare $75\,\Omega$).
+* **Audio Left (RCA Alb):** Intrarea stânga a ADC-ului audio din eMPIA EM2882.
+* **Audio Right (RCA Roșu):** Intrarea dreapta a ADC-ului audio din eMPIA EM2882.
+* **GND (Masă):** Ecranajul metalic general al tunerului/mufei USB.
+
+---
+
+## 5. Telecomandă IR & Protocol Philips RC-5
+
+Tunerul dispune de receptor IR integrat configurat pe protocolul industrial **Philips RC-5** la **36 kHz**:
+* **Adresă Dispozitiv:** `0x07` (Decimal `7`)
+* **Comenzi principale:** POWER (`0x39`), RECORD (`0x36`), PLAY (`0x30`), STOP (`0x3C`), VOL+/- (`0x03`/`0x09`), CH+/- (`0x06`/`0x0C`).
+* Se poate clona sau programa în orice telecomandă universală, aplicație pe smartphone cu infraroșu sau Flipper Zero.
+
+---
+
+## 6. Captură Software
 
 ### A. Windows (DirectShow / VirtualDub2 / OBS)
 * Necesită driverul x64 `5.2010.0901.0` (PCTV Systems TVCenter 6.4 Package).
-* Odată instalat driverul WDM/DirectShow, dispozitivul este recunoscut nativ în **VirtualDub2** sau **OBS Studio** ca:
-  * Video: `PCTV 330e Video Capture`
-  * Audio: `PCTV 330e Audio Capture` (sau conexiune Line-In)
-* **Recomandare setări captură VHS:**
-  * Rezoluție: `720x576` (PAL 4:3 interlaced, 25 fps / 50 fields/sec)
-  * Format culoare: `YUY2` (evitați RGB24 pentru a nu face conversii inutile de spațiu de culoare)
-  * Codec Lossless: `HuffYUV` sau `Lagarith` (fără artefacte de compresie)
+* Setări recomandate: PAL B/G 720x576 interlaced, 25 fps, spațiu de culoare `YUY2`, compresie lossless `HuffYUV` sau `Lagarith`.
 
 ### B. Linux (V4L2 + ALSA + FFmpeg)
-Tunerul este suportat nativ de nucleul Linux (modulul `em28xx`). 
-Firmware-ul tunerului se descarcă automat sau se plasează în `/lib/firmware/xc3028.fw`.
-
 Comandă FFmpeg pentru arhivare **Lossless FFV1 + PCM Audio**:
 ```bash
 ffmpeg -f v4l2 -standard PAL -video_size 720x576 -framerate 25 -i /dev/video0 \
