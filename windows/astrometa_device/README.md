@@ -112,13 +112,17 @@ scp -i C:\Users\luisa\.ssh\id_ed25519 root@192.168.5.106:/tmp/astrometa_build/De
 
 ---
 
-## 6. Notă Pregătitoare pentru Investigarea Celuilalt Stick Astrometa
+## 6. Rezultate Testare & Identificare Hardware: Celălalt Tuner (USB `0BDA:2838`)
 
-Pentru a doua versiune de Astrometa menționată (care aparent nu are DVB-C):
-1. **Test Conectare & Verificare USB ID:**
-   * La conectare, verificăm ID-ul hardware în Device Manager sau PowerShell (`Get-PnpDevice` / `usbview`).
-   * Dacă are același `15F4:0131` sau `15F4:0130`, identificarea se face direct prin I2C probing pe magistrala RTL2832.
-2. **Posibile Configurații Hardware:**
-   * **Dacă demodulatorul este Sony CXD2837ER:** Adresă I2C `0x6C` / `0x6D`. Acest cip poate fi T/T2-only dacă circuitele analogice de cablu nu sunt cablate pe PCB, sau poate necesita setul complet de tabele de registre Sony.
-   * **Dacă demodulatorul este Panasonic MN88472:** Adresă I2C `0x18` (răspunde cu `0x02` la Bank 0 `0xFF`). Necesită firmware-ul microcode pentru MN88472 și mod Parallel TS (`Bank 2 0x08 = 0x00`).
-   * **Dacă este un stick RTL2832U pur:** Nu are niciun cip secundar pe I2C (doar RTL2832 + tuner R820T/FC0012). În acest caz, suportul hardware este exclusiv DVB-T / DAB / FM, fără capabilitate fizică de DVB-C sau DVB-T2.
+La interogarea directă prin utilitarul nostru de scanare I2C (`probe_tuner.c`), celălalt stick a fost identificat cu certitudine absolută:
+* **USB VID:PID:** `0BDA:2838` (Descriptor EEPROM: `Realtek RTL2838UHIDIR`, header `28 32 DA 0B 38 28`).
+* **Demodulator:** Doar cel intern integrat în **Realtek RTL2832U**.
+* **Silicon Tuner:** **Fitipower FC0012** (răspunde la adresa I2C `0x10` / 8-bit `0x20`).
+* **Demodulatoare secundare:** **NICIUNUL PREZENT** (I2C `0x18`, `0x1C`, `0x6C/0x6D` nu răspund).
+
+> [!WARNING]
+> ### ⚠️ LIMITARE HARDWARE FUNDAMENTALĂ — LIPSĂ DVB-C ȘI LIPSĂ DVB-T2:
+> * Acest stick **NU ȘTIE DVB-C** și **NU ȘTIE DVB-T2**!
+> * Nu are fizic pe placă niciun procesor demodulator capabil de QAM (cablu) sau COFDM avansat (DVB-T2).
+> * Demodulatorul intern RTL2832U știe doar standardul vechi terestru **DVB-T** (care în Europa a fost oprit definitiv, trecându-se pe DVB-T2).
+> * **Utilitate:** Stick-ul este util exclusiv ca receptor radio software **RTL-SDR** (SDR#, GQRX, urmărire avioane ADS-B 1090 MHz cu `dump1090`, radio FM broadcast / DAB+, comunicații VHF aviație 118-137 MHz). Pentru televiziune digitală prin cablu (DVB-C) sau terestră modernă (DVB-T2), este **inutilizabil hardware**.
