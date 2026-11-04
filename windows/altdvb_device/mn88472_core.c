@@ -162,6 +162,8 @@ bool mn88472_read_status(xbox_device_t *dev, int *strength, int *snr, bool *lock
 
     if (!(*locked)) {
         *snr = 0;
+        /* Auto-recovery watchdog: Pulse FSM to re-acquire carrier when cable is reconnected */
+        mn88472_write_reg(dev, MN88472_ADDR_B2, 0xf8, 0x9f);
         return true;
     }
 

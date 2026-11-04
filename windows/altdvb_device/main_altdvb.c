@@ -277,19 +277,16 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
          *   Every EP0 control transfer stalls the DiB0700 microcontroller's TS FIFO
          *   on high-bitrate QAM-256 streams (~50.87 Mbps), causing intermittent dropouts.
          */
-        DWORD poll_interval = 100;
+        DWORD poll_interval = g_is_locked ? 400 : 150;
+        if (now - g_last_stat_query >= poll_interval || g_last_stat_query == 0) {
+            g_last_stat_query = now;
+            bool locked_now = false;
+            int str_now = 0, snr_now = 0;
+            mn88472_read_status(&g_xbox_dev, &str_now, &snr_now, &locked_now);
 
-        if (!g_is_locked || (now - g_last_tune_time <= 3000)) {
-            if (now - g_last_stat_query >= poll_interval || g_last_stat_query == 0) {
-                g_last_stat_query = now;
-                bool locked_now = false;
-                int str_now = 0, snr_now = 0;
-                mn88472_read_status(&g_xbox_dev, &str_now, &snr_now, &locked_now);
-
-                g_is_locked = locked_now;
-                g_last_strength = str_now;
-                g_last_snr = snr_now;
-            }
+            g_is_locked = locked_now;
+            g_last_strength = str_now;
+            g_last_snr = snr_now;
         }
 
         sig->strength = (short int)g_last_strength;
