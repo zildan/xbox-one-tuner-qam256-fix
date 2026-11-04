@@ -115,11 +115,20 @@ bool unified_usb_open(unified_device_t *dev, device_model_t target_model) {
         for (int i = 0; i < ifDesc.bNumEndpoints; i++) {
             WINUSB_PIPE_INFORMATION pipeInfo;
             if (WinUsb_QueryPipe(dev->hWinUsb, 0, (UCHAR)i, &pipeInfo)) {
-                if (pipeInfo.PipeType == UsbdPipeTypeBulk && (pipeInfo.PipeId & 0x80)) {
-                    dev->ep_in = pipeInfo.PipeId;
-                    dev->max_packet_size = pipeInfo.MaximumPacketSize;
-                    log_dbg("Discovered Bulk IN EP: 0x%02X (max packet: %u)\n", dev->ep_in, (unsigned)dev->max_packet_size);
-                    break;
+                if (dev->model == DEVICE_MODEL_XBOX_ONE) {
+                    if (pipeInfo.PipeId == 0x82) {
+                        dev->ep_in = pipeInfo.PipeId;
+                        dev->max_packet_size = pipeInfo.MaximumPacketSize;
+                        log_dbg("Discovered Xbox TS Bulk IN EP: 0x%02X (max packet: %u)\n", dev->ep_in, (unsigned)dev->max_packet_size);
+                        break;
+                    }
+                } else {
+                    if (pipeInfo.PipeId == 0x81) {
+                        dev->ep_in = pipeInfo.PipeId;
+                        dev->max_packet_size = pipeInfo.MaximumPacketSize;
+                        log_dbg("Discovered Astrometa TS Bulk IN EP: 0x%02X (max packet: %u)\n", dev->ep_in, (unsigned)dev->max_packet_size);
+                        break;
+                    }
                 }
             }
         }
@@ -128,7 +137,9 @@ bool unified_usb_open(unified_device_t *dev, device_model_t target_model) {
     /* Configure WinUSB pipe policies for high-speed streaming */
     UCHAR raw_io = TRUE;
     WinUsb_SetPipePolicy(dev->hWinUsb, dev->ep_in, RAW_IO, sizeof(raw_io), &raw_io);
-    ULONG timeout = 1000;
+    UCHAR auto_clear = TRUE;
+    WinUsb_SetPipePolicy(dev->hWinUsb, dev->ep_in, AUTO_CLEAR_STALL, sizeof(auto_clear), &auto_clear);
+    ULONG timeout = 3000;
     WinUsb_SetPipePolicy(dev->hWinUsb, dev->ep_in, PIPE_TRANSFER_TIMEOUT, sizeof(timeout), &timeout);
 
     return true;

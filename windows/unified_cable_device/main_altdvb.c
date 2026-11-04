@@ -349,9 +349,6 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
                 unified_usb_close(&g_unified_dev);
                 return AltxDVB_ERR;
             }
-            if (!tda18250_init(&g_unified_dev)) {
-                log_dbg("OPEN_DEVICE: tda18250_init failed!\n");
-            }
         } else if (g_unified_dev.model == DEVICE_MODEL_ASTROMETA) {
             if (!rtl2832_init(&g_unified_dev)) {
                 log_dbg("OPEN_DEVICE: rtl2832_init failed!\n");
@@ -416,8 +413,7 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
         EnterCriticalSection(&g_unified_dev.lock);
 
         if (g_unified_dev.model == DEVICE_MODEL_XBOX_ONE) {
-            tda18250_tune_dvbc(&g_unified_dev, freq_hz);
-            mn88472_tune_dvbc(&g_unified_dev, freq_hz, sym_rate_ks, qam_mode);
+            mn88472_tune_dvbc(&g_unified_dev, freq_hz, sym_rate_ks, tune->modulation);
         } else if (g_unified_dev.model == DEVICE_MODEL_ASTROMETA) {
             r820t_device_set_freq(&g_unified_dev, freq_hz);
             mn88473_tune_dvbc(&g_unified_dev, freq_hz / 1000, sym_rate_ks, qam_mode);
