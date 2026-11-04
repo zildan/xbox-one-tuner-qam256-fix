@@ -148,3 +148,16 @@ Aflat în folderul [`windows/astrometa_device/`](windows/astrometa_device/):
 - **Arhitectură:** Rutare Slave TS RTL2832 cu bypass direct în USB EPA (`SYS_DEMOD_CTL = 0xE0`), ieșire Serial TS pe MN88473, demodulator clock 25 MHz, IF 5.07 MHz, pipeline asincron WinUSB de 16 buffere x 24.064 octeți (`BULK_STAGESIZE`).
 - Detalii complete în [Documentația modulului Astrometa](windows/astrometa_device/README.md).
 
+---
+
+## 4. Modul Windows Unificat (`Dev_DVB_Cable_Unified.int`) — 🚀 XBOX ONE & ASTROMETA COMBO
+
+Aflat în folderul [`windows/unified_cable_device/`](windows/unified_cable_device/):
+- **Un singur driver pentru ambele tunere:** Înlocuiește cele 4 fișiere separate cu doar două: `Dev_DVB_Cable_Unified.int` și `Dev_DVB_Cable_Unified.cfg`.
+- **Suport hardware complet:**
+  1. **Microsoft Xbox One Digital TV Tuner** (`045E:02D5` — DiB0700 + MN88472 + TDA18250, streaming pe EP `0x82`).
+  2. **Astrometa DVB-T2/C USB Stick** (`15F4:0131` — RTL2832P + MN88473 + R828D, streaming pe EP `0x81`).
+- **Detecție dinamică:** Recunoaște automat oricare dintre cele două tunere conectat la PC (sau ambele simultan pe sloturi separate în AltDVB).
+- **Streaming 0-Drop:** Ring buffer asincron de 16 buffere x 24.064 octeți (`BULK_STAGESIZE`), prioritate `THREAD_PRIORITY_HIGHEST` și sincronizare automată 2-sync cu bypass de padding.
+- Detalii complete în [Documentația modulului unificat](windows/unified_cable_device/README.md).
+
