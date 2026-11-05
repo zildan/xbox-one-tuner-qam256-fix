@@ -398,7 +398,13 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
 
     case TUNE: {
         struct TUNE_DATA *tune = (struct TUNE_DATA *)data;
+        if (!tune) return AltxDVB_OK;
         memcpy(&g_last_tune, tune, sizeof(struct TUNE_DATA));
+
+        if (tune->frequency <= 0) {
+            log_dbg("TUNE: frequency <= 0, skipping tune\n");
+            return AltxDVB_OK;
+        }
 
         uint32_t freq_hz;
         if (tune->frequency < 10000) {
@@ -421,16 +427,39 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
 
         EnterCriticalSection(&g_unified_dev.lock);
 
-        if (g_unified_dev.model == DEVICE_MODEL_XBOX_ONE) {
-            mn88472_tune_dvbc(&g_unified_dev, freq_hz, sym_rate_ks, tune->modulation);
-        } else if (g_unified_dev.model == DEVICE_MODEL_ASTROMETA) {
-            r820t_device_set_freq(&g_unified_dev, freq_hz);
-            mn88473_tune_dvbc(&g_unified_dev, freq_hz, sym_rate_ks, tune->modulation);
-            rtl2832_set_streaming(&g_unified_dev, true);
-        }
-
         g_last_tune_time = GetTickCount();
         g_is_locked = false;
+        g_last_snr = 0;
+        g_last_strength = 0;
+        g_last_stat_query = 0;
+
+        if (g_unified_dev.model == DEVICE_MODEL_XBOX_ONE) {
+            mn88472_tune_dvbc(&g_unified_dev, freq_hz, sym_rate_ks, tune->modulation);
+            StartStreaming(&g_unified_dev);
+        } else if (g_unified_dev.model == DEVICE_MODEL_ASTROMETA) {
+            /* For Astrometa RTL2832, TS bulk streaming on EP 0x81 saturates the bridge
+             * and causes EP0 I2C transfers to Rafael R828D to fail (-EREMOTEIO, ret=-121).
+             * Stopping stream cleanly guarantees 100% reliable PLL lock on frequency switches. */
+            StopStreaming(&g_unified_dev);
+
+            bool ok = false;
+            for (int r = 0; r < 3; r++) {
+                ok = r820t_device_set_freq(&g_unified_dev, freq_hz);
+                if (ok) break;
+                log_dbg("TUNE: r820t_device_set_freq retry %d...\n", r + 1);
+                Sleep(25);
+            }
+            if (!ok) {
+                log_dbg("TUNE: r820t_device_set_freq FAILED after 3 attempts!\n");
+            }
+
+            mn88473_tune_dvbc(&g_unified_dev, freq_hz, sym_rate_ks, tune->modulation);
+            rtl2832_set_streaming(&g_unified_dev, true);
+            if (g_stream_cb) {
+                StartStreaming(&g_unified_dev);
+            }
+        }
+
         LeaveCriticalSection(&g_unified_dev.lock);
         return AltxDVB_OK;
     }

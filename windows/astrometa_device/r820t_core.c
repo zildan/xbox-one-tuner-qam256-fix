@@ -18,9 +18,9 @@ typedef uint64_t v4l2_std_id;
 #define module_param(a, b, c)
 #define MODULE_PARM_DESC(a, b)
 #define tuner_dbg(fmt, ...)
-#define tuner_info(fmt, ...)
-#define tuner_warn(fmt, ...)
-#define tuner_err(fmt, ...)
+#define tuner_info(fmt, ...) log_dbg(fmt, ##__VA_ARGS__)
+#define tuner_warn(fmt, ...) log_dbg(fmt, ##__VA_ARGS__)
+#define tuner_err(fmt, ...)  log_dbg(fmt, ##__VA_ARGS__)
 #define pr_info(fmt, ...)
 
 #define usleep_range(min, max) Sleep(((min) + 999) / 1000)

@@ -415,7 +415,16 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
 
         /* 1. Tune Rafael Micro R828D Tuner */
         log_dbg("TUNE: r820t_device_set_freq %u Hz\n", freq_hz);
-        r820t_device_set_freq(&g_dev, freq_hz);
+        bool ok = false;
+        for (int r = 0; r < 3; r++) {
+            ok = r820t_device_set_freq(&g_dev, freq_hz);
+            if (ok) break;
+            log_dbg("TUNE: r820t_device_set_freq retry %d...\n", r + 1);
+            Sleep(25);
+        }
+        if (!ok) {
+            log_dbg("TUNE: r820t_device_set_freq FAILED after 3 attempts!\n");
+        }
 
         /* 2. Configure Panasonic MN88473 Demodulator */
         log_dbg("TUNE: mn88473_tune_dvbc\n");
