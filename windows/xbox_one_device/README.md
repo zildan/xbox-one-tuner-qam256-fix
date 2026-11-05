@@ -1,5 +1,9 @@
 # Dev_XboxOne_QAM256 — Direct Device Module for AltDVB (Windows)
 
+<p align="center">
+  <img src="../../docs/images/xbox_one_tuner.png" alt="Microsoft Xbox One Digital TV Tuner" width="380">
+</p>
+
 Driver nativ de producție în user-space prin **WinUSB** pentru Microsoft Xbox One Digital TV Tuner (`045E:02D5`) în **AltDVB 2.5**.
 
 ---
