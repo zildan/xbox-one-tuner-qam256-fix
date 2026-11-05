@@ -132,12 +132,12 @@ Pe forumuri (inclusiv pe **sateliti.info**) s-a observat de ani de zile că tune
 
 ## 2. Modul Windows pentru AltDVB (`Dev_XboxOne_QAM256.int`) — ✅ VERSIUNE DE PRODUCȚIE VALIDATĂ
 
-Modulul nativ pentru Windows destinat aplicației **AltDVB** (aflat în folderul [`windows/altdvb_device/`](windows/altdvb_device/)):
+Modulul nativ pentru Windows destinat aplicației **AltDVB** (aflat în folderul [`windows/xbox_one_device/`](windows/xbox_one_device/)):
 * Funcționează direct în user-space prin **WinUSB** (fără driver BDA proprietar).
 * Include pipeline-ul asincron de 16 buffere suprapuse alocate la 4096 octeți (`BULK_STAGESIZE = 24.064 octeți`), ceas DiB0700 la 72 MHz și magistrală I2C accelerată la 1000 kHz Fast-Mode Plus.
 * **Watchdog de Re-achiziție Purtătoare:** Detectează automat deconectarea cablului coaxial TV și reia stream-ul video/audio în `< 1 secundă` la reconectare fără erori și fără intervenție manuală.
 * **Recomandare setări AltDVB:** La *Settings -> DirectShow Config -> Video Renderer*, alegeți **Default Video Renderer** sau **Video Mixing Renderer 9 (VMR-9)** (filtrul EVR poate afișa ecran negru pe Windows 10/11).
-* Instrucțiunile complete de instalare și configurare se găsesc în [Documentația modulului Windows](windows/altdvb_device/README.md).
+* Instrucțiunile complete de instalare și configurare se găsesc în [Documentația modulului Windows](windows/xbox_one_device/README.md).
 
 ---
 
