@@ -1,5 +1,9 @@
 # Pinnacle PCTV Hybrid Pro Stick 330e - Ghid Tehnic Digitizare VHS & AV
 
+<p align="center">
+  <img src="docs/images/pctv_330e_tuner.png" alt="Pinnacle PCTV Hybrid Pro Stick 330e" width="460">
+</p>
+
 ## 1. Prezentare Hardware
 
 Dispozitivul conectat este un tuner hibrid USB 2.0 din generația clasică Pinnacle / PCTV Systems, recunoscut ca unul dintre cele mai robuste echipamente pentru conversia semnalelor video analogice SD instabile (cum sunt casetele VHS/S-VHS uzate).
