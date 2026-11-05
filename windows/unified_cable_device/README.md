@@ -45,7 +45,31 @@ Ambele tunere beneficiază de pipeline-ul asincron de producție:
 
 ---
 
-## 4. Ghid de Compilare
+## 4. Particularități de Comutare Transpondere (TP Zapping) & Comparație Hardware (TDA18250 vs R828D)
+
+În utilizarea practică a AltDVB (de exemplu la comutarea pe canale precum *Favorit TV 2 HD*, *PRIMA SPORT 2 HD* pe transponderul `546 MHz / QAM-256 / SR 6900`), există diferențe arhitecturale majore între cele două tunere în modul de achiziție a purtătoarei:
+
+### A. Comutare Intra-Transponder vs Inter-Transponder:
+* **Pe același transponder (TP):** Când comutați între canale aflate pe aceeași frecvență (ex. de la *BBC First HD* la *Favorit TV 2 HD* pe 546 MHz), AltDVB **nu re-acordează tunerul** (nu apelează comanda hardware `TUNE`). Schimbarea este pur software în graful DirectShow / PID demuxer.
+* **La saltul între transpondere diferite:** AltDVB apelează `TUNE`, declanșând oprirea temporară a fluxului, reprogramarea sintetizatorului PLL de frecvență RF din tuner și reinițializarea automatului de stări (FSM) din demodulatorul Panasonic.
+
+### B. Comparație Comportament RF & Sincronizare QAM-256:
+
+| Criteriu Hardware | **Xbox One (`045E:02D5`)** | **Astrometa (`15F4:0131`)** |
+| :--- | :--- | :--- |
+| **Cip Tuner RF** | **NXP TDA18250BHN** | **Rafael Micro R828D** |
+| **Demodulator DVB-C** | **Panasonic MN88472** | **Panasonic MN88473** |
+| **Viteză Stabilizare PLL** | Ultra-rapidă (< 10 ms), sintetizator fracțional | Mai lentă (20–50 ms), necesită tracking filter |
+| **Control Automat Câștig (AGC)** | Buclă hardware internă autonomă de mare dinamică | AGC gestionat mixt prin comenzi I2C |
+| **Comportament la Salturi între TP-uri** | Agăță instantaneu purtătoarea indiferent de ecartul de putere RF dintre transpondere | Dacă se comută rapid de pe un TP cu semnal puternic pe un TP UHF atenuat (546 MHz), AGC-ul are nevoie de timp de stabilizare înainte ca FSM-ul MN88473 să poată sincroniza constelația QAM-256 |
+| **Sensibilitate & Raport Semnal/Zgomot** | Superioară (LNA integrat cu zgomot redus) | Medie; necesită nivel RF adecvat pe cablul coaxial |
+
+> [!TIP]
+> Dacă la un salt rapid între transpondere un canal precum *Favorit TV 2 HD* (546 MHz) nu agață imediat pe Astrometa, o reselectare a canalului sau repornirea curată a sesiunii AltDVB permite tunerului R828D să-și calibreze corect etajul de intrare RF, după care demodularea rulează cu 0 pierderi de pachete.
+
+---
+
+## 5. Ghid de Compilare
 
 Cross-compilare de pe Linux (sau Linux NUC):
 ```bash
@@ -62,7 +86,7 @@ i686-w64-mingw32-gcc -Wall -Wextra -O2 -s -shared -static-libgcc \
 
 ---
 
-## 5. Instalare în AltDVB 2.5
+## 6. Instalare în AltDVB 2.5
 
 1. Copiați în folderul `AltDVB\Devices\`:
    * `Dev_DVB_Cable_Unified.int`
