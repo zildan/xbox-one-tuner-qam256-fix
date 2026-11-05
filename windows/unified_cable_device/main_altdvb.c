@@ -425,7 +425,8 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
             mn88472_tune_dvbc(&g_unified_dev, freq_hz, sym_rate_ks, tune->modulation);
         } else if (g_unified_dev.model == DEVICE_MODEL_ASTROMETA) {
             r820t_device_set_freq(&g_unified_dev, freq_hz);
-            mn88473_tune_dvbc(&g_unified_dev, freq_hz / 1000, sym_rate_ks, qam_mode);
+            mn88473_tune_dvbc(&g_unified_dev, freq_hz, sym_rate_ks, tune->modulation);
+            rtl2832_set_streaming(&g_unified_dev, true);
         }
 
         g_last_tune_time = GetTickCount();

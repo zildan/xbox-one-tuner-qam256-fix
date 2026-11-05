@@ -150,6 +150,9 @@ bool mn88473_get_status(astrometa_device_t *dev, bool *locked, int *strength, in
     } else {
         *strength = 35;
         *snr = 10;
+        /* Auto-recovery watchdog: Pulse FSM to re-acquire carrier when cable is reconnected */
+        uint8_t b2_f8 = 0x9F;
+        rtl2832_i2c_write(dev, I2C_ADDR_MN88473_BANK2, 0xF8, &b2_f8, 1);
     }
 
     log_dbg("mn88473_status: v85=0x%02X v89=0x%02X agc=%u locked=%d str=%d snr=%d\n",
