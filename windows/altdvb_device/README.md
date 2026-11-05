@@ -1,11 +1,21 @@
 # Dev_XboxOne_QAM256 — Direct Device Module for AltDVB (Windows)
 
-> ⚠️ **AVERTISMENT / DISCLAIMER (STATUS: TEST / EXPERIMENTAL)**
-> 
-> Acest modul de Windows pentru AltDVB (`Dev_XboxOne_QAM256.int`) este în stadiu de **TEST / EXPERIMENTAL (BETA)** și **NU este considerat încă 100% stabil**.
-> - Imaginea este mult mai stabilă față de soluțiile anterioare, însă pe anumite configurații sau multiplexuri dense mai pot apărea ocazional artefacte.
-> - **Fiecare utilizator testează pe propria răspundere! (Use and test at your own risk!)**
-> - Proiectul este oferit „așa cum este” (*as is*), fără garanții de stabilitate absolută. Feedback-ul și testele comunității sunt binevenite!
+Driver nativ de producție în user-space prin **WinUSB** pentru Microsoft Xbox One Digital TV Tuner (`045E:02D5`) în **AltDVB 2.5**.
+
+---
+
+## 📌 Caracteristici Tehnice & Arhitectură
+1. **Zero Packet Drops pe QAM-256 (50.87 Mbps):**
+   * Puntea **DiB0700** rulează la ceasul maxim de **72 MHz**.
+   * Magistrală I2C accelerată la **1000 kHz Fast-Mode Plus**.
+   * Tranzacții I2C atomice pe Endpoint 0 (elimină blocajul de FIFO din DiB0700).
+   * Demodulatorul **Panasonic MN88472** configurat pe **`VARIABLE_TS_CLOCK`** și mod paralel TS.
+   * Streaming asincron prin 16 buffere aliniate paginat (`BULK_STAGESIZE = 24.064 octeți`) pe Bulk Endpoint `0x82`.
+2. **Watchdog Automat de Re-achiziție Purtătoare (Hot-Plug Cablu Coaxial):**
+   * Monitorizare continuă a semnalului la 400 ms (locked) / 150 ms (căutare).
+   * Restartare automată FSM pe Panasonic (`0xF8 = 0x9F`) la căderea de semnal.
+   * La reconectarea cablului coaxial TV, stream-ul video/audio își revine automat în `< 1 secundă` fără a fi nevoie de dublu-click pe canal sau restart AltDVB.
+3. **Protecție FPU Delphi x87:** Toate punctele de intrare/ieșire din DLL curăță automat starea coprocesorului matematic (`_clear87()`, `fnclex`), prevenind crash-urile din interfața Delphi a AltDVB.
 
 ---
 
@@ -32,20 +42,16 @@ Deoarece tunerul nu are driver oficial de la Microsoft pentru Windows:
 
 ### 2. Copierea fișierelor în AltDVB
 1. Copiază fișierele din acest folder direct în directorul **`Devices\`** al instalării tale de AltDVB:
-   - `Dev_XboxOne_QAM256.int`
-   - `Dev_XboxOne_QAM256.cfg`
+   * `Dev_XboxOne_QAM256.int`
+   * `Dev_XboxOne_QAM256.cfg`
 2. Pune cele două fișiere de firmware în folderul `Devices\` (sau în rădăcina AltDVB):
-   - `dvb-usb-dib0700-1.20.fw`
-   - `dvb-demod-mn88472-02.fw`
+   * `dvb-usb-dib0700-1.20.fw`
+   * `dvb-demod-mn88472-02.fw`
 
 ---
 
 ### 3. Utilizarea în AltDVB
 1. Pornește **AltDVB**.
 2. La pornire (în fereastra *Select Device Interface*), selectează **`Dev_XboxOne_QAM256`**.
-3. Tunerul se va inițializa automat prin WinUSB:
-   - Ceasul intern va fi setat la **72 MHz**
-   - Magistrala I2C va rula la **1000 kHz** (mod rapid)
-   - Tranzacțiile I2C se execută **atomic** (fără blocaj de FIFO)
-   - Demodulatorul Panasonic MN88472 este setat pe **`VARIABLE_TS_CLOCK`**
+3. Tunerul se va inițializa automat prin WinUSB.
 4. Mergi la Scanare / Vizionare pe frecvențele DVB-C dorite (de exemplu rețeaua DIGI cablu).

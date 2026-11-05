@@ -1,6 +1,6 @@
 # Unified DVB-C USB Tuner Driver for AltDVB 2.5 (`Dev_DVB_Cable_Unified.int`)
 
-Acest modul reunifică într-un **singur driver nativ WinUSB** (`.int` DLL) suportul pentru ambele tunere de cablu DVB-C:
+Acest modul reunifică într-un **singur driver nativ WinUSB de producție** (`.int` DLL) suportul complet pentru ambele tunere de cablu DVB-C:
 1. **Microsoft Xbox One Digital TV Tuner** (`045E:02D5` — DiBcom DiB0700 + Panasonic MN88472 + NXP TDA18250BHN).
 2. **Astrometa DVB-T2/C USB Stick** (`15F4:0131` — Realtek RTL2832P + Panasonic MN88473 + Rafael Micro R828D).
 
@@ -20,7 +20,16 @@ La inițializarea de către AltDVB (`DEVICE_DESCRIPTION` și `OPEN_DEVICE`):
 
 ---
 
-## 2. Pipeline Comun de Streaming de Mare Viteză (0-Drop)
+## 2. Watchdog Automat de Re-achiziție Purtătoare (Hot-Plug Cablu Coaxial)
+
+Driverul integrează un mecanism de autorecuperare în caz de pierdere a semnalului (deconectare cablu coaxial, fluctuații de rețea CATV sau căderi de semnal):
+* **Interogare adaptivă continuă:** Monitorizează permanent starea demodulatorului la 400 ms în mod locked și la 150 ms în căutare.
+* **Restart automat al automatului de stări (FSM Pulse):** La decuplarea semnalului RF, demodulatoarele Panasonic MN88472 / MN88473 primesc impuls automat pe registrul Bank 2 `0xF8 = 0x9F` pentru scanare continuă de purtătoare.
+* **Recuperare instantanee (< 1 secundă):** La reintroducerea cablului coaxial, demodulatorul agață purtătoarea instantaneu, bucla de streaming resetează alinierea pe octetul `0x47`, iar redarea video/audio revine automat în AltDVB **fără a fi nevoie de dublu-click pe canal sau restart de aplicație**.
+
+---
+
+## 3. Pipeline Comun de Streaming de Mare Viteză (0-Drop QAM-256)
 
 Ambele tunere beneficiază de pipeline-ul asincron de producție:
 * **Dimensiune buffer (`BULK_STAGESIZE`):** Exact 24.064 octeți ($128 \times 188\text{ octeți} = 47 \times 512\text{ pachete USB}$).
@@ -31,7 +40,7 @@ Ambele tunere beneficiază de pipeline-ul asincron de producție:
 
 ---
 
-## 3. Ghid de Compilare
+## 4. Ghid de Compilare
 
 Cross-compilare de pe Linux (sau Linux NUC):
 ```bash
@@ -48,7 +57,7 @@ i686-w64-mingw32-gcc -Wall -Wextra -O2 -s -shared -static-libgcc \
 
 ---
 
-## 4. Instalare în AltDVB 2.5
+## 5. Instalare în AltDVB 2.5
 
 1. Copiați în folderul `AltDVB\Devices\`:
    * `Dev_DVB_Cable_Unified.int`

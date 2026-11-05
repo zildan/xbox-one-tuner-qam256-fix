@@ -112,7 +112,16 @@ scp -i C:\Users\luisa\.ssh\id_ed25519 root@192.168.5.106:/tmp/astrometa_build/De
 
 ---
 
-## 6. Rezultate Testare & Identificare Hardware: Celălalt Tuner (USB `0BDA:2838`)
+## 6. Watchdog Automat de Re-achiziție Purtătoare (Hot-Plug Cablu Coaxial)
+
+Driverul include un mecanism activ de autorecuperare la căderea semnalului sau deconectarea fizică a cablului TV:
+* **Interogare continuă adaptivă:** Statusul lock-ului și SNR-ul sunt citite la 400 ms (când semnalul este prezent) și la 150 ms (în căutare).
+* **Reset automat FSM Panasonic:** La deconectarea cablului coaxial, registrul Bank 2 `0xF8` al cipului MN88473 primește automat impuls de restart (`0x9F`).
+* **Auto-recuperare instantanee:** La reintroducerea cablului coaxial, demodulatorul blochează purtătoarea și reia stream-ul MPEG-TS pe Bulk Endpoint `0x81` în `< 1 secundă`, fără a fi necesară intervenția manuală.
+
+---
+
+## 7. Rezultate Testare & Identificare Hardware: Celălalt Tuner (USB `0BDA:2838`)
 
 La interogarea directă prin utilitarul nostru de scanare I2C (`probe_tuner.c`), celălalt stick a fost identificat cu certitudine absolută:
 * **USB VID:PID:** `0BDA:2838` (Descriptor EEPROM: `Realtek RTL2838UHIDIR`, header `28 32 DA 0B 38 28`).
