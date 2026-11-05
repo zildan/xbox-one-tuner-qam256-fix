@@ -45,15 +45,26 @@ static unsigned __stdcall StreamThreadProc(void *arg) {
     bool synced = false;
     int cur = 0;
 
+    int loop_cnt = 0;
     while (dev->is_streaming) {
         HANDLE wait_pair[2] = { dev->hStopEvent, bufs[cur].ov.hEvent };
-        DWORD wait_res = WaitForMultipleObjects(2, wait_pair, FALSE, INFINITE);
+        DWORD wait_res = WaitForMultipleObjects(2, wait_pair, FALSE, 200);
         if (wait_res == WAIT_OBJECT_0) {
             /* Stop event signaled */
             break;
         }
 
+        if (wait_res == WAIT_TIMEOUT) {
+            loop_cnt++;
+            if (loop_cnt >= 5) {
+                synced = false;
+                leftover_len = 0;
+            }
+            continue;
+        }
+
         if (wait_res == WAIT_OBJECT_0 + 1) {
+            loop_cnt = 0;
             ULONG transferred = 0;
             if (WinUsb_GetOverlappedResult(dev->hWinUsb, &bufs[cur].ov, &transferred, FALSE) && transferred > 0) {
                 uint8_t *chunk = bufs[cur].buffer;

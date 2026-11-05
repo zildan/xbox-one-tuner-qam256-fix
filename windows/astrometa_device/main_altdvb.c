@@ -95,13 +95,20 @@ static unsigned __stdcall StreamThreadProc(void *arg) {
         }
 
         if (wait_res == WAIT_TIMEOUT) {
-            if (++loop_cnt % 15 == 1) {
+            loop_cnt++;
+            if (loop_cnt >= 5) {
+                /* Cable disconnected or stream interrupted: reset sync for clean recovery */
+                synced = false;
+                leftover_len = 0;
+            }
+            if (loop_cnt % 15 == 1) {
                 log_dbg("StreamThread: WAIT_TIMEOUT waiting for buf[%d] (no data from EP 0x81)\n", cur);
             }
             continue;
         }
 
         if (wait_res == WAIT_OBJECT_0 + 1) {
+            loop_cnt = 0;
             ULONG transferred = 0;
             BOOL bRes = WinUsb_GetOverlappedResult(dev->hWinUsb, &bufs[cur].ov, &transferred, FALSE);
             if (!bRes) {
@@ -433,18 +440,17 @@ int __declspec(dllexport) __stdcall DvbDeviceControl(int msg_id, char *data) {
         if (!sig) { clear_fpu(); return AltxDVB_OK; }
         DWORD now = GetTickCount();
 
-        DWORD poll_interval = 100;
-        if (!g_is_locked || (now - g_last_tune_time <= 3000)) {
-            if (now - g_last_stat_query >= poll_interval || g_last_stat_query == 0) {
-                g_last_stat_query = now;
-                bool locked_now = false;
-                int str_now = 0, snr_now = 0;
-                mn88473_get_status(&g_dev, &locked_now, &str_now, &snr_now);
+        /* Continuously poll signal (400ms when locked, 150ms when searching) to support cable hot-plug */
+        DWORD poll_interval = g_is_locked ? 400 : 150;
+        if (now - g_last_stat_query >= poll_interval || g_last_stat_query == 0) {
+            g_last_stat_query = now;
+            bool locked_now = false;
+            int str_now = 0, snr_now = 0;
+            mn88473_get_status(&g_dev, &locked_now, &str_now, &snr_now);
 
-                g_is_locked = locked_now;
-                g_last_strength = str_now;
-                g_last_snr = snr_now;
-            }
+            g_is_locked = locked_now;
+            g_last_strength = str_now;
+            g_last_snr = snr_now;
         }
 
         sig->strength = (short int)g_last_strength;
