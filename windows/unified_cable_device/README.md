@@ -1,5 +1,10 @@
 # Unified DVB-C USB Tuner Driver for AltDVB 2.5 (`Dev_DVB_Cable_Unified.int`)
 
+<p align="center">
+  <img src="../../docs/images/xbox_one_tuner.png" alt="Microsoft Xbox One Digital TV Tuner" width="340">&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="../../docs/images/astrometa_tuner.png" alt="Astrometa DVB-T2/C USB Stick" width="340">
+</p>
+
 Acest modul reunifică într-un **singur driver nativ WinUSB de producție** (`.int` DLL) suportul complet pentru ambele tunere de cablu DVB-C:
 1. **Microsoft Xbox One Digital TV Tuner** (`045E:02D5` — DiBcom DiB0700 + Panasonic MN88472 + NXP TDA18250BHN).
 2. **Astrometa DVB-T2/C USB Stick** (`15F4:0131` — Realtek RTL2832P + Panasonic MN88473 + Rafael Micro R828D).

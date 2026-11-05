@@ -1,5 +1,9 @@
 # Astrometa DVB-T2/C USB Stick - AltDVB 2.5 Device Driver (`Dev_Astrometa_DVB.int`)
 
+<p align="center">
+  <img src="../../docs/images/astrometa_tuner.png" alt="Astrometa DVB-T2/C USB Stick" width="380">
+</p>
+
 Acest modul reprezintă implementarea de producție nativă WinUSB a driverului AltDVB 2.5 (32-bit `__stdcall` DLL) pentru tunerul USB **Astrometa DVB-T2/C**, validat complet pe DVB-C (DIGI România, 64-QAM și 256-QAM, SR 6900) cu **0 packet drops** pe peste 1.000.000 pachete MPEG-TS consecutive.
 
 ---

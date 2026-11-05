@@ -147,6 +147,10 @@ Modulul nativ pentru Windows destinat aplicației **AltDVB** (aflat în folderul
 
 ## 3. Modul Windows pentru Astrometa DVB-T2/C (`Dev_Astrometa_DVB.int`) — ✅ VERSIUNE DE PRODUCȚIE VALIDATĂ
 
+<p align="center">
+  <img src="docs/images/astrometa_tuner.png" alt="Astrometa DVB-T2/C USB Stick" width="340">
+</p>
+
 Aflat în folderul [`windows/astrometa_device/`](windows/astrometa_device/):
 - **Compatibilitate:** Tuner USB Astrometa DVB-T2/C (Revizia 2: Realtek RTL2832P + Panasonic MN88473 + Rafael Micro R828D, USB ID `15F4:0131`).
 - **Performanță:** **0 Packet Drops** pe peste 1.000.000 pachete MPEG-TS consecutive pe DVB-C (64-QAM și 256-QAM, SR 6900).
@@ -156,6 +160,11 @@ Aflat în folderul [`windows/astrometa_device/`](windows/astrometa_device/):
 ---
 
 ## 4. Modul Windows Unificat (`Dev_DVB_Cable_Unified.int`) — 🚀 XBOX ONE & ASTROMETA COMBO
+
+<p align="center">
+  <img src="docs/images/xbox_one_tuner.png" alt="Microsoft Xbox One Digital TV Tuner" width="300">&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/images/astrometa_tuner.png" alt="Astrometa DVB-T2/C USB Stick" width="300">
+</p>
 
 Aflat în folderul [`windows/unified_cable_device/`](windows/unified_cable_device/):
 - **Un singur driver pentru ambele tunere:** Înlocuiește cele 4 fișiere separate cu doar două: `Dev_DVB_Cable_Unified.int` și `Dev_DVB_Cable_Unified.cfg`.
